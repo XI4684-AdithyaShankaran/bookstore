@@ -40,14 +40,14 @@ export default function Header() {
   const closeSheet = () => setSheetOpen(false);
 
   return (
-    <header className="bg-background/80 backdrop-blur-lg border-b sticky top-0 z-50">
+    <header className="bg-background/80 backdrop-blur-sm border-b sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <Link
             href="/"
             className="text-2xl font-bold text-primary font-headline"
           >
-            BibliophileAI
+            bkmrk'd
           </Link>
 
           <div className="hidden md:flex flex-1 justify-center px-8">
@@ -93,7 +93,7 @@ export default function Header() {
                 </SheetTrigger>
                 <SheetContent>
                   <SheetHeader>
-                    <SheetTitle>BibliophileAI</SheetTitle>
+                    <SheetTitle>bkmrk'd</SheetTitle>
                   </SheetHeader>
                   <div className="py-8">
                     <NavLinks inSheet onLinkClick={closeSheet} />
