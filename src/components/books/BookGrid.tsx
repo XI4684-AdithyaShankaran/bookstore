@@ -7,7 +7,7 @@ import { Button } from '../ui/button';
 import { Loader2 } from 'lucide-react';
 import type { Book } from '@/lib/types';
 
-const BATCH_SIZE = 6;
+const BATCH_SIZE = 12;
 
 export default function BookGrid() {
   const [books, setBooks] = useState<Book[]>(mockBooks.slice(0, BATCH_SIZE));

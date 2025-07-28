@@ -116,5 +116,59 @@ export const mockBooks: Book[] = [
     coverImage: 'https://placehold.co/400x600/F2A63F/000000',
     genre: 'Sci-Fi',
     rating: 4.8
+  },
+  {
+    id: 13,
+    title: 'The Hitchhiker\'s Guide to the Galaxy',
+    author: 'Douglas Adams',
+    description: 'Seconds before the Earth is demolished to make way for a galactic freeway, Arthur Dent is plucked off the planet by his friend Ford Prefect, a researcher for the revised edition of The Hitchhiker\'s Guide to the Galaxy who, for the last fifteen years, has been posing as an out-of-work actor.',
+    coverImage: 'https://placehold.co/400x600/478CCA/F0F4F7',
+    genre: 'Sci-Fi',
+    rating: 4.7
+  },
+  {
+    id: 14,
+    title: 'The Chronicles of Narnia',
+    author: 'C.S. Lewis',
+    description: 'Journeys to the end of the world, fantastic creatures, and epic battles between good and evil—what more could any reader ask for in one book? The book that has it all is The Lion, the Witch and the Wardrobe, written in 1949 by C. S. Lewis. But Lewis did not stop there. Six more books followed, and together they became known as The Chronicles of Narnia.',
+    coverImage: 'https://placehold.co/400x600/F2A63F/000000',
+    genre: 'Fantasy',
+    rating: 4.8
+  },
+  {
+    id: 15,
+    title: 'The Picture of Dorian Gray',
+    author: 'Oscar Wilde',
+    description: 'Oscar Wilde’s only novel is the dreamlike story of a young man who sells his soul for eternal youth and beauty. In this Faustian tale, Dorian Gray is a breathtakingly handsome young man whose portrait captures his exquisite beauty. But he is seduced into a life of sin and degradation, and as he remains young and beautiful, his portrait becomes a hideous record of his depravity.',
+    coverImage: 'https://placehold.co/400x600/478CCA/F0F4F7',
+    genre: 'Gothic',
+    rating: 4.5
+  },
+  {
+    id: 16,
+    title: 'Frankenstein',
+    author: 'Mary Shelley',
+    description: 'A monster assembled by a scientist from parts of dead bodies, an animated corpse—these are the images that have fired the imaginations of generations of readers. But the story of Victor Frankenstein and his monstrous creation is more than a simple horror story. It is a tale of obsession, of the limits of human creativity, and of the destructive power of guilt.',
+    coverImage: 'https://placehold.co/400x600/F2A63F/000000',
+    genre: 'Gothic',
+    rating: 4.4
+  },
+  {
+    id: 17,
+    title: 'The Alchemist',
+    author: 'Paulo Coelho',
+    description: 'Paulo Coelho\'s enchanting novel has inspired a devoted following around the world. This story, dazzling in its powerful simplicity and soul-stirring wisdom, is about an Andalusian shepherd boy named Santiago who travels from his homeland in Spain to the Egyptian desert in search of a treasure buried in the Pyramids. Along the way he meets a Gypsy woman, a man who calls himself king, and an alchemist, all of whom point Santiago in the direction of his quest.',
+    coverImage: 'https://placehold.co/400x600/478CCA/F0F4F7',
+    genre: 'Fantasy',
+    rating: 4.6
+  },
+  {
+    id: 18,
+    title: 'One Hundred Years of Solitude',
+    author: 'Gabriel Garcia Marquez',
+    description: 'One of the twentieth century\'s most beloved and acclaimed novels, One Hundred Years of Solitude tells the story of the rise and fall, birth and death of the mythical town of Macondo through the history of the Buendía family. Inventive, amusing, magnetic, sad, and alive with unforgettable men and women—brimming with truth, compassion, and a lyrical magic that strikes the soul—this novel is a masterpiece in the art of fiction.',
+    coverImage: 'https://placehold.co/400x600/F2A63F/000000',
+    genre: 'Magical Realism',
+    rating: 4.3
   }
 ];
