@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { BookOpen, Sparkles, User, Menu } from 'lucide-react';
+import { BookOpen, User, Menu, Search, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useState } from 'react';
+import { Input } from '../ui/input';
 
 const NavLinks = ({ inSheet = false }: { inSheet?: boolean }) => (
   <nav
@@ -21,20 +22,13 @@ const NavLinks = ({ inSheet = false }: { inSheet?: boolean }) => (
         : 'hidden md:flex items-center space-x-6'
     }
   >
-    <Link
-      href="/recommendations"
-      className="flex items-center gap-2 hover:text-primary transition-colors"
-    >
-      <Sparkles className="w-4 h-4" />
-      AI Recommendations
-    </Link>
-    <Link
-      href="/bookshelves"
-      className="flex items-center gap-2 hover:text-primary transition-colors"
-    >
-      <BookOpen className="w-4 h-4" />
-      My Bookshelves
-    </Link>
+    <Button variant="ghost" asChild>
+      <Link
+        href="#"
+      >
+        Journal Page
+      </Link>
+    </Button>
   </nav>
 );
 
@@ -43,19 +37,32 @@ export default function Header() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
-    <header className="bg-card/80 backdrop-blur-lg border-b sticky top-0 z-50">
+    <header className="bg-background/80 backdrop-blur-lg border-b sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <Link
             href="/"
             className="text-2xl font-bold text-primary font-headline"
           >
-            BibliophileAI
+            bkmrk'd
           </Link>
 
-          <NavLinks />
+          <div className="flex-1 flex justify-center px-8">
+             <div className="relative w-full max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input placeholder="Search" className="pl-10 bg-muted border-none" />
+             </div>
+          </div>
+
 
           <div className="flex items-center gap-2">
+            <NavLinks />
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="#">
+                <Bell />
+                <span className="sr-only">Notifications</span>
+              </Link>
+            </Button>
             <Button variant="ghost" size="icon" asChild>
               <Link href="/login">
                 <User />
@@ -72,7 +79,7 @@ export default function Header() {
                 </SheetTrigger>
                 <SheetContent>
                   <SheetHeader>
-                    <SheetTitle>BibliophileAI</SheetTitle>
+                    <SheetTitle>bkmrk'd</SheetTitle>
                   </SheetHeader>
                   <div className="py-8">
                     <NavLinks inSheet />
