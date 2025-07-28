@@ -6,7 +6,7 @@ import { Sparkles } from 'lucide-react';
 export default function Home() {
   return (
     <div>
-      <section className="text-center px-4 py-12 md:py-20 lg:py-24 bg-card/50">
+      <section className="text-center px-4 py-12 md:py-20 lg:py-24 bg-card">
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold font-headline mb-4">
             Find your next great read.
           </h1>

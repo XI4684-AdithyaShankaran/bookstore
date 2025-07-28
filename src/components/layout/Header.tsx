@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useState } from 'react';
-import { Input } from '../ui/input';
 
 const NavLinks = ({ inSheet = false, onLinkClick }: { inSheet?: boolean; onLinkClick?: () => void }) => (
   <nav
@@ -48,7 +47,7 @@ export default function Header() {
             href="/"
             className="text-2xl font-bold text-primary font-headline"
           >
-            bkmrk'd
+            BibliophileAI
           </Link>
 
           <div className="hidden md:flex flex-1 justify-center px-8">
@@ -72,6 +71,12 @@ export default function Header() {
                 <span className="sr-only">Cart</span>
               </Link>
             </Button>
+             <Button variant="ghost" size="icon" asChild>
+              <Link href="/bookshelves">
+                <BookMarked />
+                <span className="sr-only">Bookshelves</span>
+              </Link>
+            </Button>
             <Button variant="ghost" size="icon" asChild>
               <Link href="/login">
                 <User />
@@ -88,7 +93,7 @@ export default function Header() {
                 </SheetTrigger>
                 <SheetContent>
                   <SheetHeader>
-                    <SheetTitle>bkmrk'd</SheetTitle>
+                    <SheetTitle>BibliophileAI</SheetTitle>
                   </SheetHeader>
                   <div className="py-8">
                     <NavLinks inSheet onLinkClick={closeSheet} />

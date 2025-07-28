@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import { mockBooks } from '@/lib/mock-data';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import BookActions from '@/components/books/BookActions';
 import SimilarBooks from '@/components/books/SimilarBooks';
@@ -24,7 +24,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
     <div className="container mx-auto px-4 py-12">
       <div className="grid md:grid-cols-3 gap-8 lg:gap-12">
         <div className="md:col-span-1">
-          <Card className="overflow-hidden sticky top-24">
+          <Card className="overflow-hidden sticky top-24 shadow-lg">
             <Image
               src={book.coverImage}
               alt={`Cover of ${book.title}`}
@@ -44,9 +44,9 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
           <p className="text-xl text-muted-foreground mt-2">by {book.author}</p>
 
           <div className="flex items-center gap-4 mt-4">
-            <Badge variant="outline">{book.genre}</Badge>
+            <Badge variant="secondary">{book.genre}</Badge>
             <div className="flex items-center">
-              <span className="text-yellow-500">★</span>
+              <span className="text-accent">★</span>
               <span className="ml-1 font-medium">{book.rating}</span>
             </div>
           </div>
