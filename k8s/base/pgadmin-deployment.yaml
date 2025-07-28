@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgadmin
+  namespace: bookstore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgadmin
+  template:
+    metadata:
+      labels:
+        app: pgadmin
+      spec:
+        containers:
+          - name: pgadmin
+            image: dpage/pgadmin4:8.12
+            ports:
+              - containerPort: 80
+            env:
+              - name: PGADMIN_DEFAULT_EMAIL
+                valueFrom:
+                  secretKeyRef:
+                    name: db-secret
+                    key: PGADMIN_DEFAULT_EMAIL
+              - name: PGADMIN_DEFAULT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: db-secret
+                    key: PGADMIN_DEFAULT_PASSWORD
+            volumeMounts:
+              - name: pgadmin-data
+                mountPath: /var/lib/pgadmin
+            resources:
+              limits:
+                cpu: "100m"
+                memory: "128Mi"
+              requests:
+                cpu: "50m"
+                memory: "64Mi"
+            readinessProbe:
+              httpGet:
+                path: /login
+                port: 80
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            livenessProbe:
+              httpGet:
+                path: /login
+                port: 80
+              initialDelaySeconds: 10
+              periodSeconds: 10
+        volumes:
+          - name: pgadmin-data
+            persistentVolumeClaim:
+              claimName: pgadmin-pvc

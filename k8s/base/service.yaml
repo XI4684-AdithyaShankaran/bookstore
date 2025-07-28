@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: bookstore
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}' # Required for GCE Ingress NEG
+spec:
+  selector:
+    app: frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: bookstore
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}' # Required for GCE Ingress NEG
+spec:
+  selector:
+    app: backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: bookstore
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgadmin
+  namespace: bookstore
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}' # Required for GCE Ingress NEG
+spec:
+  selector:
+    app: pgadmin
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

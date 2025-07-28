@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bookstore
+resources:
+  - ../../base
+patches:
+  - path: secret-patch.yaml
+  - path: image-patch.yaml
+# The Ingress resource for 'dev' will be a basic one, without SSL or a static IP,
+# applied manually or via a separate dev-specific Makefile target.
+# For simplicity, we omit it from the default kustomize build for dev.
