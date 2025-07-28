@@ -61,7 +61,7 @@ export default function BookshelvesPage() {
             </div>
           </Card>
         ))}
-        <Card className="border-dashed flex items-center justify-center min-h-[200px]">
+        <Card className="border-dashed flex items-center justify-center min-h-[200px] border-2">
            <Button variant="ghost" className="text-lg">
              + Create New Bookshelf
            </Button>

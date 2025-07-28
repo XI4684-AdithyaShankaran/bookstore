@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { BookOpen, User, Menu, Search, Bell } from 'lucide-react';
+import { BookMarked, Heart, Menu, Search, ShoppingCart, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -14,19 +14,22 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useState } from 'react';
 import { Input } from '../ui/input';
 
-const NavLinks = ({ inSheet = false }: { inSheet?: boolean }) => (
+const NavLinks = ({ inSheet = false, onLinkClick }: { inSheet?: boolean; onLinkClick?: () => void }) => (
   <nav
     className={
       inSheet
         ? 'flex flex-col space-y-4 text-lg'
-        : 'hidden md:flex items-center space-x-6'
+        : 'hidden md:flex items-center space-x-1'
     }
   >
+     <Button variant="ghost" asChild>
+      <Link href="/recommendations" onClick={onLinkClick}>
+        Discover
+      </Link>
+    </Button>
     <Button variant="ghost" asChild>
-      <Link
-        href="#"
-      >
-        Journal Page
+      <Link href="/bookshelves" onClick={onLinkClick}>
+        Bookshelves
       </Link>
     </Button>
   </nav>
@@ -35,6 +38,7 @@ const NavLinks = ({ inSheet = false }: { inSheet?: boolean }) => (
 export default function Header() {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const closeSheet = () => setSheetOpen(false);
 
   return (
     <header className="bg-background/80 backdrop-blur-lg border-b sticky top-0 z-50">
@@ -47,20 +51,25 @@ export default function Header() {
             bkmrk'd
           </Link>
 
-          <div className="flex-1 flex justify-center px-8">
-             <div className="relative w-full max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input placeholder="Search" className="pl-10 bg-muted border-none" />
-             </div>
+          <div className="hidden md:flex flex-1 justify-center px-8">
+             <NavLinks />
           </div>
 
-
-          <div className="flex items-center gap-2">
-            <NavLinks />
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="#">
-                <Bell />
-                <span className="sr-only">Notifications</span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className='hidden md:inline-flex'>
+                <Search />
+                <span className="sr-only">Search</span>
+            </Button>
+             <Button variant="ghost" size="icon" asChild>
+              <Link href="/wishlist">
+                <Heart />
+                <span className="sr-only">Wishlist</span>
+              </Link>
+            </Button>
+             <Button variant="ghost" size="icon" asChild>
+              <Link href="/cart">
+                <ShoppingCart />
+                <span className="sr-only">Cart</span>
               </Link>
             </Button>
             <Button variant="ghost" size="icon" asChild>
@@ -82,7 +91,7 @@ export default function Header() {
                     <SheetTitle>bkmrk'd</SheetTitle>
                   </SheetHeader>
                   <div className="py-8">
-                    <NavLinks inSheet />
+                    <NavLinks inSheet onLinkClick={closeSheet} />
                   </div>
                 </SheetContent>
               </Sheet>
