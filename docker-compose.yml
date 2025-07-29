@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:15.8
+    ports:
+      - "15432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "sleep 5 && uvicorn main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - ./logs:/logs
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_URL=http://backend:80
+    volumes:
+      - ./logs:/logs
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+  pgadmin:
+    image: dpage/pgadmin4:8.12
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
+    depends_on:
+      - db
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+volumes:
+  postgres_data:
+  pgadmin_data:
