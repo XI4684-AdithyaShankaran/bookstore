@@ -1,95 +1,159 @@
+version: '3.8'
+
 services:
-  db:
-    image: postgres:15.8
-    ports:
-      - "15432:5432"
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: bkmrk-postgres
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      POSTGRES_DB: bookstore
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: "0.1"
-          memory: 128M
-        reservations:
-          cpus: "0.05"
-          memory: 64M
+      test: ["CMD-SHELL", "pg_isready -U user -d bookstore"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: bkmrk-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Weaviate Vector Database
+  weaviate:
+    image: semitechnologies/weaviate:1.22.4
+    container_name: bkmrk-weaviate
+    ports:
+      - "8080:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: text2vec-openai
+      ENABLE_MODULES: text2vec-openai
+      CLUSTER_HOSTNAME: node1
+      OPENAI_APIKEY: ${OPENAI_API_KEY:-your-openai-api-key-here}
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API (FastAPI)
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
+    container_name: bkmrk-backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - SECRET_KEY=${SECRET_KEY}
+      - DATABASE_URL=postgresql://user:password@postgres:5432/bookstore
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - WEAVIATE_URL=http://weaviate:8080
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-your-gemini-api-key-here}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
-    command: >
-      sh -c "sleep 5 && uvicorn main:app --host 0.0.0.0 --port 8000"
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    volumes:
-      - ./logs:/logs
-    deploy:
-      resources:
-        limits:
-          cpus: "0.1"
-          memory: 128M
-        reservations:
-          cpus: "0.05"
-          memory: 64M
-  frontend:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP Server (AI Recommendation Engine)
+  mcp-server:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile.mcp
+    container_name: bkmrk-mcp-server
+    ports:
+      - "8001:8001"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-your-gemini-api-key-here}
+      - WEAVIATE_URL=http://weaviate:8080
+      - WEAVIATE_API_KEY=${WEAVIATE_API_KEY:-your-weaviate-api-key-here}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
+    depends_on:
+      weaviate:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Analytics Server (RAGAS Analytics)
+  analytics-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.analytics
+    container_name: bkmrk-analytics-server
+    ports:
+      - "8002:8002"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
+    volumes:
+      - analytics_data:/app/analytics
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/analytics/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Next.js)
+  frontend:
+    build: ./frontend
+    container_name: bkmrk-frontend
     ports:
       - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_MCP_SERVER_URL=http://localhost:8001
+      - NEXT_PUBLIC_ANALYTICS_URL=http://localhost:8002
     depends_on:
       - backend
-    environment:
-      - BACKEND_URL=http://backend:80
-    volumes:
-      - ./logs:/logs
-    deploy:
-      resources:
-        limits:
-          cpus: "0.1"
-          memory: 128M
-        reservations:
-          cpus: "0.05"
-          memory: 64M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PgAdmin (Database Management)
   pgadmin:
-    image: dpage/pgadmin4:8.12
+    image: dpage/pgadmin4:latest
+    container_name: bkmrk-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@bookstore.com
+      PGADMIN_DEFAULT_PASSWORD: adminpass
     ports:
       - "5050:80"
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
-      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
     depends_on:
-      - db
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    deploy:
-      resources:
-        limits:
-          cpus: "0.1"
-          memory: 128M
-        reservations:
-          cpus: "0.05"
-          memory: 64M
+      - postgres
+
 volumes:
   postgres_data:
-  pgadmin_data:
+  redis_data:
+  weaviate_data:
+  analytics_data:

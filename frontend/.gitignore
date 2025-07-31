@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# NPM cache
+.npm-temp-cache/
+
 # production
 /build
 

@@ -10,6 +10,8 @@ const dummyBooks = Array.from({ length: 50 }, (_, i) => ({
   author: `Author ${i + 1}`,
   coverImage: `https://placehold.co/400x600?text=Book+${i + 1}`,
   rating: (Math.random() * 5).toFixed(2),
+  price: Math.floor(Math.random() * 20) + 10, // Random price between 10-30
+  genre: ['Fiction', 'Non-Fiction', 'Mystery', 'Romance', 'Sci-Fi', 'Fantasy'][Math.floor(Math.random() * 6)],
 }));
 
 const BATCH_SIZE = 10;
@@ -56,8 +58,10 @@ const BookGrid = () => {
       </div>
       {isLoading && (
         <div className="flex justify-center py-4">
-          {/* Loading Indicator (Placeholder) */}
-          <p>Loading more books...</p>
+          <div className="flex items-center space-x-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <span className="text-gray-600">Loading more books...</span>
+          </div>
         </div>
       )}
       {!hasMore && (

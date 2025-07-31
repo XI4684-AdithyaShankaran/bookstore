@@ -1,113 +1,237 @@
 'use client';
 
-import Link from 'next/link';
-import { useState } from 'react';
-import { Search, Bookmark, Book, User, Menu } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSession, signIn, signOut } from 'next-auth/react';
+import { Search, Menu, X, User, LogOut, BookOpen, Heart, ShoppingCart } from 'lucide-react';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/components/providers/ToastProvider';
 
-const Header = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+export default function Header() {
+  const { data: session, status } = useSession();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  // Debounced search effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.trim()) {
+        handleSearch();
+      }
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      return;
+    }
+
+    setIsSearching(true);
+
+    try {
+      // Navigate to search results page with query
+      router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    } catch (error) {
+      showToast('Search failed. Please try again.', 'error');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSearch();
+  };
+
+  const handleSignIn = () => {
+    signIn('google');
+  };
+
+  const handleSignOut = () => {
+    signOut({ callbackUrl: '/' });
+  };
 
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-        {/* Logo/App Name */}
-        <Link href="/" className="text-2xl font-bold text-blue-600">
-          bkmrk'd
-        </Link>
-
-        {/* Search Bar (Placeholder) */}
-        <div className="flex-grow mx-4 max-w-md">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search"
-              className="w-full pl-10 pr-4 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            />
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+    <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo */}
+          <div className="flex items-center">
+            <h1 className="text-2xl font-bold text-gray-900">Bkmrk&apos;d</h1>
           </div>
-        </div>
 
-        {/* Navigation Icons */}
-        <nav className="hidden md:flex items-center space-x-6">
-          <Link href="/journal" className="text-gray-600 hover:text-blue-600">
-            <Book size={24} />
-          </Link>
-          <Link href="/bookshelves" className="text-gray-600 hover:text-blue-600">
-            <Bookmark size={24} />
-          </Link>
-          <Link href="/wishlist" className="text-gray-600 hover:text-blue-600">
-            <Bookmark size={24} /> {/* Using bookmark icon as placeholder for wishlist */}
-          </Link>
-          {/* User Icon/Dropdown Trigger */}
-          <div className="relative">
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="flex items-center text-gray-600 hover:text-blue-600 focus:outline-none"
-            >
-              <User size={24} />
-            </button>
-            {/* User Dropdown Menu (Placeholder) */}
-            {isMenuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5">
-                <Link href="/profile" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Profile
-                </Link>
-                <Link href="/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Account Settings
-                </Link>
-                <Link href="/help" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Help
-                </Link>
-                <Link href="/feedback" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Send Feedback
-                </Link>
-                <button className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Sign out
-                </button>
+          {/* Search Bar - Desktop */}
+          <div className="hidden md:flex flex-1 max-w-lg mx-8">
+            <form onSubmit={handleFormSubmit} className="w-full">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Search for books, authors, or genres..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  disabled={isSearching}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                />
+                {isSearching && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  </div>
+                )}
               </div>
+            </form>
+          </div>
+
+          {/* Navigation - Desktop */}
+          <div className="hidden md:flex items-center space-x-6">
+            <a href="/bookshelves" className="text-gray-700 hover:text-blue-600 transition-colors">
+              <BookOpen className="w-5 h-5" />
+            </a>
+            <a href="/recommendations" className="text-gray-700 hover:text-blue-600 transition-colors">
+              <Heart className="w-5 h-5" />
+            </a>
+            <a href="/cart" className="text-gray-700 hover:text-blue-600 transition-colors relative">
+              <ShoppingCart className="w-5 h-5" />
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                0
+              </span>
+            </a>
+
+            {/* User Menu */}
+            {status === 'loading' ? (
+              <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse"></div>
+            ) : session ? (
+              <div className="relative group">
+                <button className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors">
+                  {session.user?.image ? (
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name || 'User'}
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                  ) : (
+                    <User className="w-8 h-8" />
+                  )}
+                </button>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                  <div className="px-4 py-2 text-sm text-gray-700 border-b">
+                    {session.user?.name || session.user?.email}
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleSignIn}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Sign In
+              </button>
             )}
           </div>
-        </nav>
 
-        {/* Mobile Menu Button */}
-        <div className="md:hidden">
-          <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-gray-600 hover:text-blue-600 focus:outline-none">
-            <Menu size={24} />
-          </button>
-          {/* Mobile Menu (Placeholder) */}
-          {isMenuOpen && (
-             <div className="absolute top-16 right-4 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 md:hidden">
-               <Link href="/journal" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                 Journal Page
-               </Link>
-               <Link href="/bookshelves" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                 Bookshelves
-               </Link>
-               <Link href="/wishlist" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                 Wishlist
-               </Link>
-               <Link href="/profile" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                 Profile
-               </Link>
-                <Link href="/settings" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Account Settings
-                </Link>
-                <Link href="/help" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Help
-                </Link>
-                <Link href="/feedback" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                  Send Feedback
-                </Link>
-               <button className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                 Sign out
-               </button>
-             </div>
-           )}
+          {/* Mobile Menu Button */}
+          <div className="md:hidden">
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="text-gray-700 hover:text-blue-600 transition-colors"
+            >
+              {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
 
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 py-4">
+            {/* Mobile Search */}
+            <form onSubmit={handleFormSubmit} className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Search for books..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  disabled={isSearching}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                />
+                {isSearching && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  </div>
+                )}
+              </div>
+            </form>
+
+            {/* Mobile Navigation */}
+            <div className="flex flex-col space-y-4">
+              <a href="/bookshelves" className="flex items-center text-gray-700 hover:text-blue-600 transition-colors">
+                <BookOpen className="w-5 h-5 mr-2" />
+                Bookshelves
+              </a>
+              <a href="/recommendations" className="flex items-center text-gray-700 hover:text-blue-600 transition-colors">
+                <Heart className="w-5 h-5 mr-2" />
+                Recommendations
+              </a>
+              <a href="/cart" className="flex items-center text-gray-700 hover:text-blue-600 transition-colors">
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                Cart
+              </a>
+
+              {/* Mobile User Menu */}
+              {status === 'loading' ? (
+                <div className="w-8 h-8 bg-gray-200 rounded-full animate-pulse"></div>
+              ) : session ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    {session.user?.image ? (
+                      <Image
+                        src={session.user.image}
+                        alt={session.user.name || 'User'}
+                        width={32}
+                        height={32}
+                        className="rounded-full mr-2"
+                      />
+                    ) : (
+                      <User className="w-8 h-8 mr-2" />
+                    )}
+                    <span className="text-sm text-gray-700">
+                      {session.user?.name || session.user?.email}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    className="text-gray-700 hover:text-blue-600 transition-colors"
+                  >
+                    <LogOut className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleSignIn}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Sign In
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );
-};
-
-export default Header;
+}

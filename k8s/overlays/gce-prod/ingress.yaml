@@ -1,0 +1,89 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bkmrk-ingress
+  namespace: bookstore
+  annotations:
+    # GCE Ingress Controller
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "bkmrk-static-ip"
+    cloud.google.com/neg: '{"ingress": true}'
+
+    # SSL/TLS configuration
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    kubernetes.io/tls-acme: "true"
+
+    # Security and performance
+    cloud.google.com/backend-config: '{"default": "bkmrk-backend-config"}'
+    cloud.google.com/load-balancer-type: "External"
+spec:
+  tls:
+    - hosts:
+        - bkmrk.example.com # Replace with your domain
+      secretName: bkmrk-tls
+  rules:
+    - host: bkmrk.example.com # Replace with your domain
+      http:
+        paths:
+          # Frontend routes (React app)
+          - path: /(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+          # Backend API routes (FastAPI)
+          - path: /api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # MCP Server routes (AI Recommendation Engine)
+          - path: /mcp(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-server
+                port:
+                  number: 8001
+
+          # Analytics Server routes (RAGAS Analytics)
+          - path: /analytics(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: analytics-server
+                port:
+                  number: 8002
+
+          # Health check routes
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # API documentation
+          - path: /docs(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # Weaviate routes (Vector Database)
+          - path: /weaviate(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: weaviate
+                port:
+                  number: 8080

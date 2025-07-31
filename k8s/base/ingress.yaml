@@ -1,0 +1,107 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bkmrk-ingress
+  namespace: bookstore
+  annotations:
+    # Choose between Nginx and GCE
+    # For Nginx Ingress Controller:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+
+    # For GCE Ingress Controller (uncomment to use):
+    # kubernetes.io/ingress.class: "gce"
+    # kubernetes.io/ingress.global-static-ip-name: "bkmrk-static-ip"
+    # cloud.google.com/neg: '{"ingress": true}'
+
+    # SSL/TLS configuration (when you have a domain)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # kubernetes.io/tls-acme: "true"
+
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+spec:
+  # TLS configuration (uncomment when you have a domain)
+  # tls:
+  # - hosts:
+  #   - bkmrk.example.com
+  #   secretName: bkmrk-tls
+  rules:
+    # NO DOMAIN CONFIGURATION - Works with IP addresses
+    # When you get a domain, add: - host: your-domain.com
+    - http:
+        paths:
+          # Frontend routes (React app)
+          - path: /(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+          # Backend API routes (FastAPI)
+          - path: /api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # MCP Server routes (AI Recommendation Engine)
+          - path: /mcp(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-server
+                port:
+                  number: 8001
+
+          # Analytics Server routes (RAGAS Analytics)
+          - path: /analytics(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: analytics-server
+                port:
+                  number: 8002
+
+          # Health check routes
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # API documentation
+          - path: /docs(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 80
+
+          # Weaviate routes (Vector Database)
+          - path: /weaviate(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: weaviate
+                port:
+                  number: 8080

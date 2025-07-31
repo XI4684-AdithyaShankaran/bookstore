@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaggle-loader
+  namespace: bookstore
+spec:
+  template:
+    spec:
+      containers:
+        - name: kaggle-loader
+          image: us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: secret
+                  key: DATABASE_URL
+            - name: KAGGLE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: secret
+                  key: KAGGLE_USERNAME
+            - name: KAGGLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret
+                  key: KAGGLE_KEY
+          resources:
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+      restartPolicy: Never
+  backoffLimit: 2
