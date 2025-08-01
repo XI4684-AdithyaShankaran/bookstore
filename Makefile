@@ -4,7 +4,7 @@
   up down restart build-all prune ps \
   k8s-apply-dev k8s-apply-prod k8s-delete-dev k8s-delete-prod k8s-status k8s-logs k8s-shell \
   gke-push gke-credentials kaggle-loader pgadmin-docs log-rotate-docs troubleshoot-docs \
-  test test-backend test-frontend test-watch test-coverage
+  test test-backend test-frontend test-watch test-coverage test-environments validate-env
 
 # ===== Help =====
 help: ## Show this help message
@@ -213,6 +213,22 @@ test-coverage: ## Generate test coverage reports
 	$(VENV_PYTHON) -m pytest backend/tests/ --cov=backend/main --cov-report=html --cov-report=term
 	cd frontend && npm test -- --coverage --watchAll=false
 	@echo "Coverage reports generated in backend/htmlcov/ and frontend/coverage/"
+
+test-environments: ## Test environment switching and configurations
+	@echo "Testing environment configurations..."
+	./scripts/test-environments.sh
+
+validate-env: ## Validate current environment configuration
+	@echo "Validating current environment configuration..."
+	@if [ -f ".env" ]; then \
+		echo "✅ .env file exists"; \
+		echo "Environment: $$(grep '^ENVIRONMENT=' .env | cut -d'=' -f2 || echo 'Not set')"; \
+		echo "Debug: $$(grep '^DEBUG=' .env | cut -d'=' -f2 || echo 'Not set')"; \
+		echo "Database: $$(grep '^DATABASE_URL=' .env | cut -d'=' -f2 | cut -d'@' -f2 | cut -d'/' -f1 || echo 'Not set')"; \
+	else \
+		echo "❌ .env file not found. Run 'make env-switch ENV=local|dev|prod' to set up environment"; \
+		exit 1; \
+	fi
 
 # ===== Initial Setup =====
 setup: ## Initial setup (install, dev)
