@@ -203,7 +203,8 @@ test_kubernetes_integration() {
 test_git_branch_integration() {
     print_status "INFO" "Testing Git branch integration"
     
-    local current_branch=$(git branch --show-current)
+    local current_branch
+    current_branch=$(git branch --show-current)
     print_status "INFO" "Current branch: $current_branch"
     
     # Check if we're on a valid environment branch
@@ -218,7 +219,8 @@ test_git_branch_integration() {
     
     # Check if .env file matches branch
     if [ -f ".env" ]; then
-        local env_content=$(head -1 .env 2>/dev/null || echo "")
+        local env_content
+        env_content=$(head -1 .env 2>/dev/null || echo "")
         case $current_branch in
             "main")
                 if echo "$env_content" | grep -q "production"; then

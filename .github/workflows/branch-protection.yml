@@ -173,19 +173,16 @@ jobs:
 
       - name: Deploy to Kubernetes
         run: |
-          # Ensure ENVIRONMENT is set
-          if [ -z "${{ env.ENVIRONMENT }}" ]; then
-            echo "ENVIRONMENT not set, determining from branch"
-            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              echo "ENVIRONMENT=production" >> $GITHUB_ENV
-            else
-              echo "ENVIRONMENT=development" >> $GITHUB_ENV
-            fi
+          # Set environment based on branch
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENVIRONMENT="production"
+          else
+            ENVIRONMENT="development"
           fi
-
-          echo "Deploying to ${{ env.ENVIRONMENT }} environment"
+          
+          echo "Deploying to $ENVIRONMENT environment"
           # Add your deployment commands here
-          if [ "${{ env.ENVIRONMENT }}" = "production" ]; then
+          if [ "$ENVIRONMENT" = "production" ]; then
             make k8s-apply-prod
           else
             make k8s-apply-dev
