@@ -2,9 +2,9 @@ name: Branch Protection and CI/CD Setup
 
 on:
   push:
-    branches: [ main, dev, local ]
+    branches: [main, dev, local]
   pull_request:
-    branches: [ main, dev ]
+    branches: [main, dev]
 
 env:
   REGISTRY: ghcr.io
@@ -137,14 +137,14 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          format: "sarif"
+          output: "trivy-results.sarif"
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: "trivy-results.sarif"
 
   # Environment-specific deployment
   deploy:
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -163,14 +163,26 @@ jobs:
             echo "Setting up production environment"
             cp env.production .env
             echo "ENVIRONMENT=production" >> $GITHUB_ENV
+            export ENVIRONMENT=production
           else
             echo "Setting up development environment"
             cp env.development .env
             echo "ENVIRONMENT=development" >> $GITHUB_ENV
+            export ENVIRONMENT=development
           fi
 
       - name: Deploy to Kubernetes
         run: |
+          # Ensure ENVIRONMENT is set
+          if [ -z "${{ env.ENVIRONMENT }}" ]; then
+            echo "ENVIRONMENT not set, determining from branch"
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              echo "ENVIRONMENT=production" >> $GITHUB_ENV
+            else
+              echo "ENVIRONMENT=development" >> $GITHUB_ENV
+            fi
+          fi
+
           echo "Deploying to ${{ env.ENVIRONMENT }} environment"
           # Add your deployment commands here
           if [ "${{ env.ENVIRONMENT }}" = "production" ]; then
@@ -205,4 +217,4 @@ jobs:
           echo "Testing production environment setup"
           cp env.production .env
           make env-switch ENV=prod
-          echo "Production environment test completed" 
+          echo "Production environment test completed"
