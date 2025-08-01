@@ -34,7 +34,13 @@ env-switch: ## Switch environment (usage: make env-switch ENV=local|dev|prod)
 		exit 1; \
 	fi
 	@echo "Switching to $(ENV) environment..."
-	cp env.$(ENV) .env
+	@if [ "$(ENV)" = "dev" ]; then \
+		cp env.development .env; \
+	elif [ "$(ENV)" = "prod" ]; then \
+		cp env.production .env; \
+	else \
+		cp env.$(ENV) .env; \
+	fi
 	@echo "$(ENV) environment activated!"
 
 # Define variables for the venv executables for easier use
