@@ -1,8 +1,8 @@
-# Environment files (keeping .env for template, ignoring local overrides)
+# Environment files (environment-specific .env files are committed to respective branches)
+# Only ignore local overrides and temporary env files
 .env.local
-.env.development
-.env.production
-.env.prod
+.env.temp
+.env.backup
 
 # Dependencies
 node_modules/

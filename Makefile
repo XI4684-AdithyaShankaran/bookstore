@@ -13,11 +13,29 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ===== Environment Management =====
+env-local: ## Set up local development environment
+	@echo "Setting up local development environment..."
+	cp env.local .env
+	@echo "Local environment is ready. Update .env with your API keys."
+
 env-dev: ## Set up development environment
+	@echo "Setting up development environment..."
+	cp env.development .env
 	@echo "Development environment is ready. Update .env with your API keys."
 
 env-prod: ## Set up production environment
+	@echo "Setting up production environment..."
+	cp env.production .env
 	@echo "Production environment is ready. Update .env with your production values."
+
+env-switch: ## Switch environment (usage: make env-switch ENV=local|dev|prod)
+	@if [ -z "$(ENV)" ]; then \
+		echo "Usage: make env-switch ENV=local|dev|prod"; \
+		exit 1; \
+	fi
+	@echo "Switching to $(ENV) environment..."
+	cp env.$(ENV) .env
+	@echo "$(ENV) environment activated!"
 
 # Define variables for the venv executables for easier use
 VENV_PIP = backend/venv/bin/pip
