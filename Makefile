@@ -13,11 +13,11 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ===== Environment Management =====
-env-dev: ## Use dev.env.example for local development
-	@cp dev.env.example .env
+env-dev: ## Set up development environment
+	@echo "Development environment is ready. Update .env with your API keys."
 
-env-prod: ## Use dev.env.example for production (update values as needed)
-	@cp dev.env.example .env
+env-prod: ## Set up production environment
+	@echo "Production environment is ready. Update .env with your production values."
 
 # Define variables for the venv executables for easier use
 VENV_PIP = backend/venv/bin/pip
@@ -44,7 +44,7 @@ update-deps: ## Update dependencies (only new packages)
 
 setup-backend: ## Set up backend with virtual environment
 	@echo "Setting up backend environment..."
-	make install
+	$(MAKE) install
 	@echo "Backend setup complete!"
 
 setup-frontend: ## Set up frontend environment
@@ -68,7 +68,109 @@ dev-frontend: ## Start frontend dev server (Next.js)
 dev-backend: ## Start backend dev server (FastAPI)
 	$(VENV_PYTHON) -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 --app-dir backend
 
-# ... (keep your Docker, K8s, etc. sections) ...
+# ===== Docker Commands =====
+up: ## Start all services (Docker Compose)
+	docker-compose --env-file .env up -d
+
+down: ## Stop all services (Docker Compose)
+	docker-compose down
+
+restart: ## Restart all services
+	docker-compose restart
+
+logs: ## View all logs
+	docker-compose logs -f
+
+ps: ## Show running containers
+	docker-compose ps
+
+build-all: ## Build all Docker images
+	docker-compose build
+
+prune: ## Clean up Docker system
+	docker system prune -f
+	docker volume prune -f
+
+# ===== Shell Access =====
+shell-backend: ## Access backend container shell
+	docker-compose exec backend sh
+
+shell-frontend: ## Access frontend container shell
+	docker-compose exec frontend sh
+
+shell-db: ## Access database container shell
+	docker-compose exec postgres psql -U user -d bookstore
+
+shell-pgadmin: ## Access pgAdmin container shell
+	docker-compose exec pgadmin sh
+
+shell-mcp: ## Access MCP server container shell
+	docker-compose exec mcp-server sh
+
+shell-analytics: ## Access analytics server container shell
+	docker-compose exec analytics-server sh
+
+shell-weaviate: ## Access Weaviate container shell
+	docker-compose exec weaviate sh
+
+# ===== Database =====
+db-reset: ## Reset database (drop and recreate)
+	docker-compose down -v
+	docker-compose up -d postgres
+	@echo "Database reset complete!"
+
+# ===== Kubernetes =====
+k8s-apply-dev: ## Apply development Kubernetes config
+	kubectl apply -k k8s/overlays/dev/
+
+k8s-apply-prod: ## Apply production Kubernetes config
+	kubectl apply -k k8s/overlays/gce-prod/
+
+k8s-delete-dev: ## Delete development Kubernetes resources
+	kubectl delete -k k8s/overlays/dev/ --ignore-not-found=true
+
+k8s-delete-prod: ## Delete production Kubernetes resources
+	kubectl delete -k k8s/overlays/gce-prod/ --ignore-not-found=true
+
+k8s-status: ## Show Kubernetes resources status
+	kubectl get pods,services,ingress -n bookstore
+
+k8s-logs: ## View Kubernetes logs
+	kubectl logs -l app=backend -n bookstore
+
+k8s-shell: ## Access Kubernetes pod shell
+	kubectl exec -it deploy/backend -n bookstore -- sh
+
+# ===== GKE Deployment =====
+gke-push: ## Build and push images to GCR
+	docker build -f backend/Dockerfile -t gcr.io/$(PROJECT_ID)/bookstore-backend:latest backend/
+	docker build -f frontend/Dockerfile -t gcr.io/$(PROJECT_ID)/bookstore-frontend:latest frontend/
+	docker push gcr.io/$(PROJECT_ID)/bookstore-backend:latest
+	docker push gcr.io/$(PROJECT_ID)/bookstore-frontend:latest
+
+gke-credentials: ## Get GKE cluster credentials
+	gcloud container clusters get-credentials bookstore-cluster --zone=us-central1-a
+
+# ===== Data Loading =====
+kaggle-loader: ## Run Kaggle data loader
+	docker build -f backend/Dockerfile.kaggleloader -t bkmrk-kaggle-loader backend/
+	docker run --env-file .env bkmrk-kaggle-loader
+
+# ===== Documentation =====
+pgadmin-docs: ## Show pgAdmin access details
+	@echo "pgAdmin: http://localhost:5050"
+	@echo "Email: admin@bookstore.com"
+	@echo "Password: adminpass"
+
+log-rotate-docs: ## Show log rotation details
+	@echo "Backend logs: docker-compose exec backend cat /logs/backend_logs.txt"
+	@echo "Log rotation: 10MB max, 5 backups"
+
+troubleshoot-docs: ## Show troubleshooting commands
+	@echo "View logs: make logs"
+	@echo "Shell access: make shell-backend"
+	@echo "Restart: make restart"
+	@echo "Clean restart: make down && make up"
 
 # ===== Testing =====
 test: test-backend test-frontend ## Run all tests (backend & frontend)
@@ -95,12 +197,11 @@ test-coverage: ## Generate test coverage reports
 	@echo "Coverage reports generated in backend/htmlcov/ and frontend/coverage/"
 
 # ===== Initial Setup =====
-setup: ## Initial setup (copy env, install, up)
+setup: ## Initial setup (install, dev)
 	@echo "Setting up development environment..."
-	[ -f dev.env.example ] && cp dev.env.example .env || (echo "Warning: dev.env.example not found. .env not created." && true)
-	make install
-	make up
-	@echo "Setup complete! Update .env file with your configuration."
+	$(MAKE) install
+	$(MAKE) dev
+	@echo "Setup complete! Update .env file with your API keys and configuration."
 
 update-middleware: ## Update middleware configuration only
 	@echo "Updating middleware configuration..."

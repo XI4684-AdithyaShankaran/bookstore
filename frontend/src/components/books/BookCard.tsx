@@ -1,11 +1,13 @@
 'use client';
 
+import React, { useState, useCallback, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Star, ShoppingCart, Heart } from 'lucide-react';
-import { useState } from 'react';
 import { useToast } from '@/components/providers/ToastProvider';
 import { Book } from '@/services/book-service';
+import { cartService } from '@/services/cart-service';
+import { wishlistService } from '@/services/wishlist-service';
 
 interface BookCardProps {
   book: Book;
@@ -16,36 +18,45 @@ const BookCard = ({ book }: BookCardProps) => {
   const [isAddingToWishlist, setIsAddingToWishlist] = useState(false);
   const { showToast } = useToast();
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = useCallback(async () => {
     setIsAddingToCart(true);
     try {
-      // TODO: Implement cart API integration
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
+      await cartService.addToCart(book.id, 1);
       showToast(`${book.title} added to cart!`, 'success');
     } catch (error) {
       showToast('Failed to add to cart. Please try again.', 'error');
     } finally {
       setIsAddingToCart(false);
     }
-  };
+  }, [book.id, book.title, showToast]);
 
-  const handleAddToWishlist = async () => {
+  const handleAddToWishlist = useCallback(async () => {
     setIsAddingToWishlist(true);
     try {
-      // TODO: Implement wishlist API integration
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API call
+      await wishlistService.addToWishlist(book.id);
       showToast(`${book.title} added to wishlist!`, 'success');
     } catch (error) {
       showToast('Failed to add to wishlist. Please try again.', 'error');
     } finally {
       setIsAddingToWishlist(false);
     }
-  };
+  }, [book.id, book.title, showToast]);
 
-  // Fallback image if cover_image is not available
-  const coverImage = book.cover_image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop';
-  const rating = book.rating ? book.rating.toFixed(1) : 'N/A';
-  const price = book.price ? `$${book.price.toFixed(2)}` : 'N/A';
+  // Memoized computed values for better performance
+  const coverImage = useMemo(() =>
+    book.cover_image || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
+    [book.cover_image]
+  );
+
+  const rating = useMemo(() =>
+    book.rating ? book.rating.toFixed(1) : 'N/A',
+    [book.rating]
+  );
+
+  const price = useMemo(() =>
+    book.price ? `$${book.price.toFixed(2)}` : 'N/A',
+    [book.price]
+  );
 
   return (
     <div className="break-inside-avoid-column bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
@@ -81,7 +92,7 @@ const BookCard = ({ book }: BookCardProps) => {
           <button
             onClick={handleAddToCart}
             disabled={isAddingToCart}
-            className="flex-1 bg-blue-500 text-white text-sm py-2 rounded hover:bg-blue-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="flex-1 bg-amber-500 text-white text-sm py-2 rounded hover:bg-amber-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
           >
             {isAddingToCart ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

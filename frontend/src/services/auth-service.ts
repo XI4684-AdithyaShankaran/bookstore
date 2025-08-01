@@ -1,19 +1,24 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export interface LoginCredentials {
-    username: string;
-    password: string;
-}
-
-export interface RegisterData {
+export interface GoogleUser {
     email: string;
-    username: string;
-    password: string;
+    name: string;
+    google_id: string;
+    avatar_url?: string;
 }
 
 export interface AuthResponse {
-    access_token: string;
-    token_type: string;
+    user: {
+        id: number;
+        email: string;
+        name?: string;
+        avatar_url?: string;
+        google_id?: string;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+    };
+    access_token?: string;
 }
 
 class AuthService {
@@ -47,29 +52,32 @@ class AuthService {
         }
     }
 
-    async login(credentials: LoginCredentials): Promise<AuthResponse> {
-        const formData = new FormData();
-        formData.append('username', credentials.username);
-        formData.append('password', credentials.password);
-
-        return this.request<AuthResponse>('/token', {
-            method: 'POST',
-            body: formData,
-        });
-    }
-
-    async register(userData: RegisterData): Promise<any> {
-        return this.request('/register', {
+    async googleAuth(userData: GoogleUser): Promise<AuthResponse> {
+        return this.request<AuthResponse>('/auth/google', {
             method: 'POST',
             body: JSON.stringify(userData),
         });
     }
 
-    async getCurrentUser(token: string): Promise<any> {
-        return this.request('/users/me', {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
+    async register(email: string, username: string, password: string): Promise<AuthResponse> {
+        return this.request<AuthResponse>('/register', {
+            method: 'POST',
+            body: JSON.stringify({
+                email,
+                username,
+                password,
+            }),
+        });
+    }
+
+    async login(email: string, password: string): Promise<AuthResponse> {
+        const formData = new FormData();
+        formData.append('username', email);
+        formData.append('password', password);
+
+        return this.request<AuthResponse>('/token', {
+            method: 'POST',
+            body: formData,
         });
     }
 }

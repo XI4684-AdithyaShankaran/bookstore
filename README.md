@@ -47,20 +47,18 @@ This is a NextJS + FastAPI full-stack application for a modern online bookstore.
 
 ### Environment Variables
 
-Create `.env` files in the root directory:
+The project includes a `.env` file with default development values. Update it with your specific configuration:
 
 ```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/bookstore
-POSTGRES_DB=bookstore
-POSTGRES_USER=user
-POSTGRES_PASSWORD=password
-
-# Backend
+# Required: Update these with your actual values
 SECRET_KEY=your-secret-key-here
+GEMINI_API_KEY=your-gemini-api-key
+KAGGLE_USERNAME=your-kaggle-username
+KAGGLE_KEY=your-kaggle-api-key
 
-# Redis
-REDIS_URL=redis://localhost:6379
+# Optional: Update for production
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
 ## Features
@@ -343,7 +341,7 @@ To prevent log files from growing indefinitely, the backend uses Python's `Rotat
 
 ## 🌐 Environment Variables Reference
 
-Below are all required environment variables for both local and cloud deployments. Set these in your `.env` file (copied from `dev.env.example`) or as Kubernetes secrets/configmaps as appropriate.
+Below are all required environment variables for both local and cloud deployments. Set these in your `.env` file or as Kubernetes secrets/configmaps as appropriate.
 
 ### Database Configuration
 - `DATABASE_URL` — PostgreSQL connection string (e.g., `postgresql://user:password@postgres:5432/bookstore`)

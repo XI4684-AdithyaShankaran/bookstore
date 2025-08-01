@@ -1,8 +1,8 @@
-# Environment files
-.env
+# Environment files (keeping .env for template, ignoring local overrides)
 .env.local
 .env.development
 .env.production
+.env.prod
 
 # Dependencies
 node_modules/

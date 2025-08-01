@@ -1,0 +1,9 @@
+apiVersion: cloud.google.com/v1
+kind: FrontendConfig
+metadata:
+  name: bkmrk-frontend-config
+  namespace: bookstore
+spec:
+  redirectToHttps:
+    enabled: true
+  securityPolicy: "bkmrk-security-policy"

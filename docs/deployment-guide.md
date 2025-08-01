@@ -74,11 +74,8 @@ gcloud container images delete gcr.io/bookstore-project-464717/bookstore-fronten
 
 ### Step 1: Environment Configuration
 ```bash
-# Copy environment template
-cp dev.env.example .env
-
-# Edit .env with your configuration
-# Required: DATABASE_URL, SECRET_KEY, GEMINI_API_KEY, KAGGLE_USERNAME, KAGGLE_KEY
+# Update .env with your configuration
+# Required: SECRET_KEY, GEMINI_API_KEY, KAGGLE_USERNAME, KAGGLE_KEY
 ```
 
 ### Step 2: One-Command Setup
