@@ -13,6 +13,10 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import redis.asyncio as redis
+import os
+from app.security.middleware import setup_security_middleware
+from app.security.advanced_security import UltraSecureValidator
 from sqlalchemy.orm import Session
 
 from app.database import get_db, create_tables
@@ -34,23 +38,63 @@ logger = logging.getLogger(__name__)
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
+# Global Redis client
+redis_client = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
+    """Application lifespan manager with advanced security setup"""
+    global redis_client
+    
     # Startup
-    logger.info("🚀 Starting Bkmrk'd Bookstore API...")
+    logger.info("🚀 Starting Bkmrk'd Bookstore API with Advanced Security...")
     try:
+        # Initialize Redis connection
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+        await redis_client.ping()  # Test connection
+        logger.info("✅ Redis connection established")
+        
         # Create database tables
         create_tables()
         logger.info("✅ Database tables created successfully")
+        
+        # Setup advanced security middleware
+        secret_key = os.getenv('SECRET_KEY', 'your-ultra-secure-secret-key-change-in-production')
+        if secret_key == 'your-ultra-secure-secret-key-change-in-production':
+            logger.warning("⚠️  Using default secret key - CHANGE IN PRODUCTION!")
+        
+        setup_security_middleware(app, redis_client, secret_key)
+        logger.info("🔒 Advanced security middleware configured")
+        
+        # Validate critical environment variables
+        validator = UltraSecureValidator()
+        required_vars = ['DATABASE_URL', 'SECRET_KEY', 'GEMINI_API_KEY']
+        for var in required_vars:
+            value = os.getenv(var)
+            is_valid, error, _ = validator.validate_input(value, 'string', required=True)
+            if not is_valid:
+                logger.error(f"❌ Invalid {var}: {error}")
+                raise ValueError(f"Invalid environment variable: {var}")
+        
+        logger.info("🚀 Bkmrk'd API started with military-grade security")
+        
     except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"❌ Startup failed: {e}")
         raise
     
     yield
     
     # Shutdown
-    logger.info("🛑 Shutting down Bkmrk'd Bookstore API...")
+    logger.info("🔄 Shutting down Bkmrk'd API...")
+    try:
+        if redis_client:
+            await redis_client.close()
+            logger.info("✅ Redis connection closed")
+    except Exception as e:
+        logger.error(f"❌ Shutdown error: {e}")
+    
+    logger.info("👋 Bkmrk'd API shutdown complete")
 
 # Create FastAPI app
 app = FastAPI(

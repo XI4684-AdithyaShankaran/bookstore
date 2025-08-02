@@ -38,11 +38,13 @@ This is a NextJS + FastAPI full-stack application for a modern online bookstore.
    npm run dev
    ```
 
-4. **Install backend dependencies**
+4. **Install API server dependencies**
    ```bash
-   cd backend
+   cd services/api-server
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r requirements.txt
-   uvicorn main:app --reload
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
 
 ### Environment Variables
@@ -74,11 +76,17 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 ```
 bookstore/
-├── frontend/          # Next.js frontend application
-├── backend/           # FastAPI backend application
-├── k8s/              # Kubernetes deployment configurations
-├── docs/             # Project documentation
-└── docker-compose.yml # Development environment setup
+├── frontend/              # Next.js 15 frontend application
+├── services/              # Microservices architecture
+│   ├── api-server/        # FastAPI main API server
+│   ├── ai-service/        # AI/ML recommendation service
+│   ├── analytics-service/ # Analytics and metrics service
+│   └── data-service/      # Data processing and ETL
+├── k8s/                   # Kubernetes deployment configurations
+├── docs/                  # Comprehensive project documentation
+├── scripts/               # Automation and utility scripts
+├── redis/                 # Redis configuration
+└── docker-compose.yml     # Development environment orchestration
 ```
 
 ## Deployment
@@ -109,14 +117,14 @@ This project is licensed under the MIT License.
    ```
 2. Build and run the loader:
    ```sh
-   docker build -f backend/Dockerfile.kaggleloader -t bkmrk-kaggle-loader backend/
+   docker build -f services/data-service/Dockerfile -t bkmrk-kaggle-loader services/data-service/
    docker run --env-file .env bkmrk-kaggle-loader
    ```
 
 ### Cloud (Kubernetes Job)
 1. Build and push the loader image to your registry:
    ```sh
-   docker build -f backend/Dockerfile.kaggleloader -t us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest backend/
+   docker build -f services/data-service/Dockerfile -t us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest services/data-service/
    docker push us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest
    ```
 2. Ensure your Kubernetes secrets contain `DATABASE_URL`, `KAGGLE_USERNAME`, and `KAGGLE_KEY`.
@@ -244,7 +252,7 @@ To prevent log files from growing indefinitely, the backend uses Python's `Rotat
   - All frontend logs: `kubectl logs -l app=frontend -n bookstore`
   - Pod logs: `kubectl logs <pod-name> -n bookstore`
 - **File-based logs:**
-  - Backend: `docker-compose exec backend cat /logs/backend_logs.txt`
+  - API Server: `docker-compose exec api-server cat /logs/backend_logs.txt`
   - GKE: `kubectl exec -it deploy/backend -n bookstore -- cat /logs/backend_logs.txt`
 
 ### Shell Access

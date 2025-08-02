@@ -18,8 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 import uvicorn
-from sqlalchemy import create_engine, text, Index
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, text, Index, or_
+from sqlalchemy.orm import sessionmaker, Session, joinedload
 from sqlalchemy.pool import QueuePool
 import redis.asyncio as aioredis
 import redis
@@ -47,6 +47,7 @@ from app.services.notification_service import NotificationService
 from app.services.optimized_algorithms import optimized_algorithms
 from app.database_optimizations import db_optimizations
 from app.api.payment import PaymentService
+from app.services.redis_service import redis_service, cache_result, CacheStrategy
 
 # Ultra-optimized logging configuration
 logging.basicConfig(
@@ -92,18 +93,18 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Ultra-optimized Redis configuration
-redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=int(os.getenv("REDIS_PORT", "6379")),
-    db=0,
-    decode_responses=True,
-    max_connections=20,  # Increased for production
-    socket_connect_timeout=5,  # Increased timeout
-    socket_timeout=5,  # Increased timeout
-    retry_on_timeout=True,
-    health_check_interval=30
-)
+# Ultra-optimized Redis configuration - Replaced with industrial-standard service
+# redis_client = redis.Redis(
+#     host=os.getenv("REDIS_HOST", "localhost"),
+#     port=int(os.getenv("REDIS_PORT", "6379")),
+#     db=0,
+#     decode_responses=True,
+#     max_connections=20,  # Increased for production
+#     socket_connect_timeout=5,  # Increased timeout
+#     socket_timeout=5,  # Increased timeout
+#     retry_on_timeout=True,
+#     health_check_interval=30
+# )
 
 # Ultra-optimized LRU Cache
 class UltraLRUCache:
@@ -338,55 +339,59 @@ async def system_monitoring_task():
 # Health check endpoint
 @app.get("/health", response_model=Dict[str, Any])
 async def health_check():
-    """Ultra-optimized health check"""
+    """Ultra-optimized health check with comprehensive monitoring"""
     try:
-        # Check database
-        db = SessionLocal()
+        # Database health check
+        db_healthy = False
         try:
-            db.execute(text("SELECT 1"))
-            db_healthy = True
-        except:
-            db_healthy = False
-        finally:
+            db = SessionLocal()
+            db.execute("SELECT 1")
             db.close()
+            db_healthy = True
+        except Exception as e:
+            logger.error(f"❌ Database health check failed: {e}")
         
-        # Check Redis
-        try:
-            redis_client.ping()
-            redis_healthy = True
-        except:
-            redis_healthy = False
+        # Redis health check
+        redis_health = redis_service.get_health_status()
         
         # System metrics
-        cpu_percent = psutil.cpu_percent()
-        memory = psutil.virtual_memory()
-        
-        return {
-            "status": "healthy" if db_healthy and redis_healthy else "unhealthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "database": "connected" if db_healthy else "disconnected",
-            "redis": "connected" if redis_healthy else "disconnected",
-            "system": {
-                "cpu_percent": cpu_percent,
-                "memory_percent": memory.percent,
-                "memory_available": memory.available
-            },
-            "cache": {
-                "size": len(ultra_cache.cache),
-                "max_size": ultra_cache.max_size
-            }
+        import psutil
+        system_metrics = {
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage('/').percent
         }
         
+        return {
+            "status": "healthy" if db_healthy and redis_health["healthy"] else "unhealthy",
+            "timestamp": time.time(),
+            "services": {
+                "database": {
+                    "status": "healthy" if db_healthy else "unhealthy",
+                    "response_time": "N/A"
+                },
+                "redis": redis_health,
+                "api_server": {
+                    "status": "healthy",
+                    "uptime": time.time() - startup_time,
+                    "version": "1.0.0"
+                }
+            },
+            "system": system_metrics,
+            "cache_metrics": redis_service.get_metrics().__dict__
+        }
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
+        logger.error(f"❌ Health check error: {e}")
         return {
             "status": "unhealthy",
-            "error": str(e)
+            "error": str(e),
+            "timestamp": time.time()
         }
 
 # Ultra-optimized book endpoints
 @app.get("/books", response_model=List[BookResponse])
 @limiter.limit("1000/minute")  # Ultra-optimized rate limit
+@cache_result(ttl=1800, strategy=CacheStrategy.LRU, key_prefix="books")  # Cache for 30 minutes
 async def get_books(
     skip: int = 0,
     limit: int = 25,  # Optimized limit
@@ -396,78 +401,136 @@ async def get_books(
     max_price: Optional[float] = None,
     request: Request = None
 ):
-    """Ultra-optimized books endpoint"""
+    """Ultra-optimized book retrieval with intelligent caching"""
     try:
+        # Generate cache key based on parameters
+        cache_key = f"books:list:{skip}:{limit}:{search}:{genre}:{min_rating}:{max_price}"
+        
+        # Try to get from cache first
+        cached_result = await redis_service.get(cache_key)
+        if cached_result:
+            logger.info(f"✅ Cache hit for books list - Key: {cache_key}")
+            return cached_result
+        
+        # Database query with ultra-optimization
         db = SessionLocal()
         try:
-            if search:
-                # Use optimized search
-                books = db_optimizations.optimized_search_books(db, search, limit)
-            elif genre:
-                # Use optimized genre search
-                books = db_optimizations.optimized_get_books_by_genre(db, genre, limit)
-            else:
-                # Use optimized general query
-                books_query = db_optimizations.optimize_book_queries(db)
-                books = books_query.offset(skip).limit(limit).all()
-                books = [
-                    {
-                        "id": book.id,
-                        "title": book.title,
-                        "author": book.author,
-                        "genre": book.genre,
-                        "rating": book.rating,
-                        "price": book.price,
-                        "cover_image": book.cover_image
-                    }
-                    for book in books
-                ]
+            query = db.query(Book).options(
+                joinedload(Book.genres),
+                joinedload(Book.author)
+            )
             
-            return books
+            # Apply filters with ultra-optimization
+            if search:
+                search_term = f"%{search}%"
+                query = query.filter(
+                    or_(
+                        Book.title.ilike(search_term),
+                        Book.description.ilike(search_term),
+                        Book.author.has(User.name.ilike(search_term))
+                    )
+                )
+            
+            if genre:
+                query = query.filter(Book.genres.any(Genre.name.ilike(f"%{genre}%")))
+            
+            if min_rating is not None:
+                query = query.filter(Book.average_rating >= min_rating)
+            
+            if max_price is not None:
+                query = query.filter(Book.price <= max_price)
+            
+            # Ultra-optimized pagination
+            books = query.offset(skip).limit(limit).all()
+            
+            # Convert to response models
+            result = [BookResponse.from_orm(book) for book in books]
+            
+            # Cache the result
+            await redis_service.set(cache_key, result, ttl=1800)
+            
+            logger.info(f"✅ Books retrieved successfully - Count: {len(result)}")
+            return result
             
         finally:
             db.close()
             
     except Exception as e:
-        logger.error(f"❌ Error getting books: {e}")
+        logger.error(f"❌ Error retrieving books: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/books/{book_id}", response_model=BookResponse)
 @limiter.limit("2000/minute")
+@cache_result(ttl=3600, strategy=CacheStrategy.LRU, key_prefix="book")
 async def get_book(book_id: int):
-    """Ultra-optimized single book endpoint"""
+    """Ultra-optimized single book retrieval with intelligent caching"""
     try:
-        # Use binary search for O(log n) lookup
-        await recommendation_engine.load_books_data()
-        book = optimized_algorithms.binary_search_books(
-            recommendation_engine.books_data, book_id
-        )
+        # Try cache first
+        cache_key = f"book:detail:{book_id}"
+        cached_book = await redis_service.get(cache_key)
+        if cached_book:
+            logger.info(f"✅ Cache hit for book {book_id}")
+            return cached_book
         
-        if not book:
-            raise HTTPException(status_code=404, detail="Book not found")
-        
-        return book
-        
+        # Database query
+        db = SessionLocal()
+        try:
+            book = db.query(Book).options(
+                joinedload(Book.genres),
+                joinedload(Book.author),
+                joinedload(Book.reviews)
+            ).filter(Book.id == book_id).first()
+            
+            if not book:
+                raise HTTPException(status_code=404, detail="Book not found")
+            
+            result = BookResponse.from_orm(book)
+            
+            # Cache the result
+            await redis_service.set(cache_key, result, ttl=3600)
+            
+            logger.info(f"✅ Book {book_id} retrieved successfully")
+            return result
+            
+        finally:
+            db.close()
+            
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting book {book_id}: {e}")
+        logger.error(f"❌ Error retrieving book {book_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/recommendations", response_model=List[BookResponse])
 @limiter.limit("500/minute")
+@cache_result(ttl=900, strategy=CacheStrategy.LRU, key_prefix="recommendations")
 async def get_recommendations(
     user_id: int,
     limit: int = 10,
     current_user: User = Depends(get_current_user)
 ):
-    """Ultra-optimized recommendations endpoint"""
+    """Ultra-optimized recommendations with intelligent caching"""
     try:
+        cache_key = f"recommendations:user:{user_id}:limit:{limit}"
+        
+        # Try cache first
+        cached_recommendations = await redis_service.get(cache_key)
+        if cached_recommendations:
+            logger.info(f"✅ Cache hit for recommendations - User: {user_id}")
+            return cached_recommendations
+        
+        # Generate recommendations
+        recommendation_engine = UltraOptimizedRecommendationEngine()
         recommendations = await recommendation_engine.get_user_recommendations(user_id, limit)
+        
+        # Cache recommendations
+        await redis_service.set(cache_key, recommendations, ttl=900)
+        
+        logger.info(f"✅ Recommendations generated for user {user_id} - Count: {len(recommendations)}")
         return recommendations
         
     except Exception as e:
-        logger.error(f"❌ Error getting recommendations: {e}")
+        logger.error(f"❌ Error generating recommendations for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # Ultra-optimized user endpoints
@@ -574,16 +637,33 @@ async def remove_book_from_bookshelf(
 @app.get("/cart", response_model=dict)
 @limiter.limit("400/minute")
 async def get_cart(current_user: User = Depends(get_current_user)):
-    """Ultra-optimized cart endpoint"""
+    """Ultra-optimized cart retrieval with Redis caching"""
     try:
+        cache_key = f"cart:user:{current_user.id}"
+        
+        # Try cache first
+        cached_cart = await redis_service.get(cache_key)
+        if cached_cart:
+            logger.info(f"✅ Cache hit for cart - User: {current_user.id}")
+            return cached_cart
+        
+        # Get cart from database
         db = SessionLocal()
         try:
             cart_service = CartService(db)
-            return cart_service.get_user_cart(current_user.id)
+            cart_data = await cart_service.get_user_cart(current_user.id)
+            
+            # Cache cart data
+            await redis_service.set(cache_key, cart_data.dict(), ttl=300)  # 5 minutes
+            
+            logger.info(f"✅ Cart retrieved for user {current_user.id}")
+            return cart_data.dict()
+            
         finally:
             db.close()
+            
     except Exception as e:
-        logger.error(f"❌ Error getting cart: {e}")
+        logger.error(f"❌ Error retrieving cart for user {current_user.id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/cart/items")
@@ -593,17 +673,25 @@ async def add_to_cart(
     quantity: int = 1,
     current_user: User = Depends(get_current_user)
 ):
-    """Ultra-optimized add to cart"""
+    """Ultra-optimized cart item addition with cache invalidation"""
     try:
         db = SessionLocal()
         try:
             cart_service = CartService(db)
-            cart_service.add_to_cart(current_user.id, book_id, quantity)
-            return {"message": "Item added to cart"}
+            result = await cart_service.add_to_cart(current_user.id, book_id, quantity)
+            
+            # Invalidate cart cache
+            cache_key = f"cart:user:{current_user.id}"
+            await redis_service.delete(cache_key)
+            
+            logger.info(f"✅ Item added to cart - User: {current_user.id}, Book: {book_id}, Quantity: {quantity}")
+            return result
+            
         finally:
             db.close()
+            
     except Exception as e:
-        logger.error(f"❌ Error adding to cart: {e}")
+        logger.error(f"❌ Error adding item to cart: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.put("/cart/items/{item_id}")
@@ -783,7 +871,7 @@ async def shutdown_event():
         engine.dispose()
         
         # Close Redis connections
-        redis_client.close()
+        redis_service.close()
         
         logger.info("✅ Ultra-optimized backend shutdown completed")
         

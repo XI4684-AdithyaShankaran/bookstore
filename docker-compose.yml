@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # Database Services
@@ -24,10 +24,10 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 256M
-          cpus: '0.25'
+          cpus: "0.25"
     command: >
       postgres
       -c shared_buffers=256MB
@@ -54,9 +54,13 @@ services:
     volumes:
       - redis_data:/data
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-bookstore_redis_pass}
+      - REDIS_MAXMEMORY=${REDIS_MAXMEMORY:-512mb}
+      - REDIS_LOG_LEVEL=${REDIS_LOG_LEVEL:-notice}
     command: >
       redis-server /usr/local/etc/redis/redis.conf
-      --maxmemory 256mb
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
       --maxmemory-policy allkeys-lru
       --save 900 1
       --save 300 10
@@ -65,9 +69,23 @@ services:
       --appendfsync everysec
       --dir /data
       --dbfilename dump.rdb
-      --requirepass ${REDIS_PASSWORD:-}
+      --requirepass ${REDIS_PASSWORD:-bookstore_redis_pass}
+      --protected-mode yes
+      --tcp-backlog 511
+      --maxclients 10000
+      --slowlog-log-slower-than 10000
+      --slowlog-max-len 128
+      --latency-monitor-threshold 100
+      --notify-keyspace-events "AKE"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD:-bookstore_redis_pass}",
+          "ping",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,12 +93,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 1G
+          cpus: "0.5"
         reservations:
-          memory: 256M
-          cpus: '0.25'
+          memory: 512M
+          cpus: "0.25"
     restart: unless-stopped
+    networks:
+      - bookstore_network
 
   weaviate:
     image: semitechnologies/weaviate:1.22.4
@@ -89,11 +109,11 @@ services:
       - "8080:8080"
     environment:
       QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      DEFAULT_VECTORIZER_MODULE: 'none'
-      ENABLE_CROSS_ORIGIN: 'true'
-      LOG_LEVEL: 'info'
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_CROSS_ORIGIN: "true"
+      LOG_LEVEL: "info"
     volumes:
       - weaviate_data:/var/lib/weaviate
     healthcheck:
@@ -106,10 +126,10 @@ services:
       resources:
         limits:
           memory: 1G
-          cpus: '1.0'
+          cpus: "1.0"
         reservations:
           memory: 512M
-          cpus: '0.5'
+          cpus: "0.5"
 
   # API Server (Main Backend)
   api-server:
@@ -121,36 +141,46 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-bookstore_redis_pass}
+      - REDIS_DB=0
+      - REDIS_MAXMEMORY=${REDIS_MAXMEMORY:-512mb}
+      - REDIS_LOG_LEVEL=${REDIS_LOG_LEVEL:-notice}
       - WEAVIATE_URL=http://weaviate:8080
       - SECRET_KEY=${SECRET_KEY}
       - ALGORITHM=${ALGORITHM:-HS256}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       - CACHE_TTL=${CACHE_TTL:-3600}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
-      - MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE:-500}
+      - MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE:-1000}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_ENABLE_COMPRESSION=${REDIS_ENABLE_COMPRESSION:-true}
+      - REDIS_ENABLE_SERIALIZATION=${REDIS_ENABLE_SERIALIZATION:-true}
+      - REDIS_COMPRESSION_THRESHOLD=${REDIS_COMPRESSION_THRESHOLD:-1024}
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_CONNECTION_TIMEOUT=${REDIS_CONNECTION_TIMEOUT:-5}
+      - REDIS_SOCKET_TIMEOUT=${REDIS_SOCKET_TIMEOUT:-5}
+      - REDIS_HEALTH_CHECK_INTERVAL=${REDIS_HEALTH_CHECK_INTERVAL:-30}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      weaviate:
+        condition: service_healthy
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 1G
+          cpus: "1.0"
         reservations:
-          memory: 256M
-          cpus: '0.25'
+          memory: 512M
+          cpus: "0.5"
     restart: unless-stopped
+    networks:
+      - bookstore_network
 
   # Analytics Service
   analytics-service:
@@ -192,10 +222,10 @@ services:
       resources:
         limits:
           memory: 1G
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 512M
-          cpus: '0.25'
+          cpus: "0.25"
     restart: unless-stopped
 
   # AI Service (MCP Server)
@@ -231,10 +261,10 @@ services:
       resources:
         limits:
           memory: 1G
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 512M
-          cpus: '0.25'
+          cpus: "0.25"
     restart: unless-stopped
 
   # Data Service (Data Loading)
@@ -264,10 +294,10 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: '0.25'
+          cpus: "0.25"
         reservations:
           memory: 256M
-          cpus: '0.1'
+          cpus: "0.1"
     restart: unless-stopped
 
   # Frontend Service
@@ -295,10 +325,10 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: '0.5'
+          cpus: "0.5"
         reservations:
           memory: 256M
-          cpus: '0.25'
+          cpus: "0.25"
     restart: unless-stopped
 
   # Database Admin (Optional)
@@ -306,10 +336,10 @@ services:
     image: dpage/pgadmin4:latest
     container_name: bookstore_pgadmin
     environment:
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD: 'admin'
-      PGADMIN_CONFIG_MASTER_EMAIL: 'admin@bookstore.com'
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD: "admin"
+      PGADMIN_CONFIG_MASTER_EMAIL: "admin@bookstore.com"
     ports:
       - "5050:80"
     depends_on:
@@ -325,10 +355,10 @@ services:
       resources:
         limits:
           memory: 256M
-          cpus: '0.25'
+          cpus: "0.25"
         reservations:
           memory: 128M
-          cpus: '0.1'
+          cpus: "0.1"
     restart: unless-stopped
 
 volumes:
@@ -340,7 +370,7 @@ volumes:
     driver: local
 
 networks:
-  default:
+  bookstore_network:
     driver: bridge
     ipam:
       config:
