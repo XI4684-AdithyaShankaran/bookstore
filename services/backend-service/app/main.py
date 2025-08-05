@@ -1,0 +1,611 @@
+#!/usr/bin/env python3
+"""
+Main FastAPI application for Bkmrk'd Bookstore
+Production-ready API with industrial standards
+"""
+
+import os
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+import redis.asyncio as redis
+import os
+from app.security.middleware import setup_security_middleware
+from app.security.security_validator import SecurityValidator
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.database import get_db, create_tables
+from app.services.auth_service import get_current_user
+from app.services.book_service import UltraOptimizedBookService
+from app.services.cart_service import UltraOptimizedCartService
+from app.services.user_service import UltraOptimizedUserService
+from app.services.bookshelf_service import UltraOptimizedBookshelfService
+from app.api.payment import router as payment_router
+from app.models.user import User
+from app.schemas.book import BookResponse
+from app.services.recommendation_service import RecommendationService
+from app.services.redis_service import cache_result, CacheStrategy
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
+# Global Redis client
+redis_client = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    global redis_client
+    
+    # Startup
+    logger.info("🚀 Starting Bkmrk'd Bookstore API...")
+    try:
+        # Initialize Redis connection
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+        await redis_client.ping()  # Test connection
+        logger.info("✅ Redis connection established")
+        
+        # Create database tables
+        create_tables()
+        logger.info("✅ Database tables created successfully")
+        
+        # Setup security middleware
+        secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+        if secret_key == 'your-secret-key-change-in-production':
+            logger.warning("⚠️  Using default secret key - CHANGE IN PRODUCTION!")
+        
+        setup_security_middleware(app, redis_client, secret_key)
+        logger.info("🔒 Security middleware configured")
+        
+        # Validate critical environment variables
+        validator = UltraSecureValidator()
+        required_vars = ['DATABASE_URL', 'SECRET_KEY', 'GEMINI_API_KEY']
+        for var in required_vars:
+            value = os.getenv(var)
+            is_valid, error, _ = validator.validate_input(value, 'string', required=True)
+            if not is_valid:
+                logger.error(f"❌ Invalid {var}: {error}")
+                raise ValueError(f"Invalid environment variable: {var}")
+        
+        logger.info("🚀 Bkmrk'd API started successfully")
+        
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}")
+        raise
+    
+    yield
+    
+    # Shutdown
+    logger.info("🔄 Shutting down Bkmrk'd API...")
+    try:
+        if redis_client:
+            await redis_client.close()
+            logger.info("✅ Redis connection closed")
+    except Exception as e:
+        logger.error(f"❌ Shutdown error: {e}")
+    
+    logger.info("👋 Bkmrk'd API shutdown complete")
+
+# Create FastAPI app
+app = FastAPI(
+    title="Bkmrk'd Bookstore API",
+    description="Production-ready bookstore API with industrial standards",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=os.getenv("ALLOWED_HOSTS", "*").split(",")
+)
+
+# Include routers
+app.include_router(payment_router, prefix="/api")
+
+# Health check endpoint
+@app.get("/health")
+@limiter.limit("100/minute")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        return {
+            "status": "healthy",
+            "service": "Bkmrk'd Bookstore API",
+            "version": "1.0.0",
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service unhealthy"
+        )
+
+# Book endpoints
+@app.get("/api/books")
+@limiter.limit("1000/minute")
+async def get_books(
+    skip: int = 0,
+    limit: int = 25,
+    search: str = None,
+    genre: str = None,
+    min_rating: float = None,
+    max_price: float = None,
+    db: Session = Depends(get_db)
+):
+    """Get books with filtering and pagination"""
+    try:
+        book_service = UltraOptimizedBookService(db)
+        result = book_service.get_books(
+            skip=skip,
+            limit=limit,
+            search=search,
+            genre=genre,
+            min_rating=min_rating,
+            max_price=max_price
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error getting books: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve books"
+        )
+
+@app.get("/api/books/{book_id}")
+@limiter.limit("1000/minute")
+async def get_book(
+    book_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get book by ID"""
+    try:
+        book_service = UltraOptimizedBookService(db)
+        book = book_service.get_book_by_id(book_id)
+        if not book:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Book not found"
+            )
+        return book
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting book {book_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve book"
+        )
+
+# Cart endpoints
+@app.get("/api/cart")
+@limiter.limit("100/minute")
+async def get_cart(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's cart"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.get_user_cart(current_user.id)
+    except Exception as e:
+        logger.error(f"Error getting cart: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve cart"
+        )
+
+@app.post("/api/cart/items")
+@limiter.limit("50/minute")
+async def add_to_cart(
+    book_id: int,
+    quantity: int = 1,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add item to cart"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.add_item_to_cart(
+            current_user.id, book_id, quantity
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding to cart: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add item to cart"
+        )
+
+@app.put("/api/cart/items/{item_id}")
+@limiter.limit("50/minute")
+async def update_cart_item(
+    item_id: int,
+    quantity: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update cart item quantity"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.update_cart_item(
+            current_user.id, item_id, quantity
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating cart item: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update cart item"
+        )
+
+@app.delete("/api/cart/items/{item_id}")
+@limiter.limit("50/minute")
+async def remove_from_cart(
+    item_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove item from cart"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.remove_item_from_cart(
+            current_user.id, item_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing from cart: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove item from cart"
+        )
+
+@app.delete("/api/cart")
+@limiter.limit("20/minute")
+async def clear_cart(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Clear user's cart"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.clear_cart(current_user.id)
+    except Exception as e:
+        logger.error(f"Error clearing cart: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear cart"
+        )
+
+@app.get("/api/cart/summary")
+@limiter.limit("100/minute")
+async def get_cart_summary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get cart summary"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.get_cart_summary(current_user.id)
+    except Exception as e:
+        logger.error(f"Error getting cart summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get cart summary"
+        )
+
+# User endpoints
+@app.get("/api/users/me")
+@limiter.limit("100/minute")
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+):
+    """Get current user information"""
+    try:
+        return {
+            "id": current_user.id,
+            "email": current_user.email,
+            "name": current_user.name,
+            "is_active": current_user.is_active,
+            "created_at": current_user.created_at
+        }
+    except Exception as e:
+        logger.error(f"Error getting user info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user information"
+        )
+
+@app.put("/api/users/me")
+@limiter.limit("10/minute")
+async def update_user_info(
+    name: str = None,
+    email: str = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user information"""
+    try:
+        user_service = UltraOptimizedUserService(db)
+        return await user_service.update_user(
+            current_user.id, name=name, email=email
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user information"
+        )
+
+# Bookshelf endpoints
+@app.get("/api/bookshelves")
+@limiter.limit("100/minute")
+async def get_user_bookshelves(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's bookshelves"""
+    try:
+        bookshelf_service = UltraOptimizedBookshelfService(db)
+        return await bookshelf_service.get_user_bookshelves(current_user.id)
+    except Exception as e:
+        logger.error(f"Error getting bookshelves: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve bookshelves"
+        )
+
+@app.post("/api/bookshelves")
+@limiter.limit("20/minute")
+async def create_bookshelf(
+    name: str,
+    description: str = None,
+    is_public: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create new bookshelf"""
+    try:
+        bookshelf_service = UltraOptimizedBookshelfService(db)
+        return await bookshelf_service.create_bookshelf(
+            current_user.id, name, description, is_public
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating bookshelf: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create bookshelf"
+        )
+
+@app.post("/api/bookshelves/{bookshelf_id}/books")
+@limiter.limit("50/minute")
+async def add_book_to_bookshelf(
+    bookshelf_id: int,
+    book_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add book to bookshelf"""
+    try:
+        bookshelf_service = UltraOptimizedBookshelfService(db)
+        return await bookshelf_service.add_book_to_bookshelf(
+            current_user.id, bookshelf_id, book_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding book to bookshelf: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add book to bookshelf"
+        )
+
+@app.delete("/api/bookshelves/{bookshelf_id}/books/{book_id}")
+@limiter.limit("50/minute")
+async def remove_book_from_bookshelf(
+    bookshelf_id: int,
+    book_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove book from bookshelf"""
+    try:
+        bookshelf_service = UltraOptimizedBookshelfService(db)
+        return await bookshelf_service.remove_book_from_bookshelf(
+            current_user.id, bookshelf_id, book_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing book from bookshelf: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove book from bookshelf"
+        )
+
+# Search endpoint
+@app.get("/api/search")
+@limiter.limit("200/minute")
+async def search_books(
+    q: str,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """Search books"""
+    try:
+        book_service = UltraOptimizedBookService(db)
+        result = book_service.get_books(
+            search=q,
+            limit=limit
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error searching books: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search books"
+        )
+
+# Analytics endpoint
+@app.get("/api/analytics/cart")
+@limiter.limit("10/minute")
+async def get_cart_analytics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get cart analytics"""
+    try:
+        cart_service = UltraOptimizedCartService(db)
+        return await cart_service.get_cart_analytics(current_user.id)
+    except Exception as e:
+        logger.error(f"Error getting cart analytics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get cart analytics"
+        )
+
+@app.get("/recommendations/wishlist", response_model=List[BookResponse])
+@limiter.limit("500/minute")
+@cache_result(ttl=900, strategy=CacheStrategy.LRU, key_prefix="wishlist_recommendations")
+async def get_wishlist_recommendations(
+    user_id: int,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get recommendations based on user's wishlist"""
+    try:
+        recommendation_service = RecommendationService(db)
+        recommendations = await recommendation_service.get_wishlist_recommendations(user_id, limit)
+        
+        logger.info(f"✅ Wishlist recommendations generated for user {user_id} - Count: {len(recommendations)}")
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating wishlist recommendations for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/recommendations/bookshelf/{bookshelf_id}", response_model=List[BookResponse])
+@limiter.limit("500/minute")
+@cache_result(ttl=900, strategy=CacheStrategy.LRU, key_prefix="bookshelf_recommendations")
+async def get_bookshelf_recommendations(
+    bookshelf_id: int,
+    user_id: int,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get recommendations for a specific bookshelf"""
+    try:
+        recommendation_service = RecommendationService(db)
+        recommendations = await recommendation_service.get_bookshelf_recommendations(user_id, bookshelf_id, limit)
+        
+        logger.info(f"✅ Bookshelf recommendations generated for user {user_id}, bookshelf {bookshelf_id} - Count: {len(recommendations)}")
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating bookshelf recommendations for user {user_id}, bookshelf {bookshelf_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/recommendations/cart", response_model=List[BookResponse])
+@limiter.limit("500/minute")
+@cache_result(ttl=900, strategy=CacheStrategy.LRU, key_prefix="cart_recommendations")
+async def get_cart_recommendations(
+    user_id: int,
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get recommendations based on user's cart"""
+    try:
+        recommendation_service = RecommendationService(db)
+        recommendations = await recommendation_service.get_cart_recommendations(user_id, limit)
+        
+        logger.info(f"✅ Cart recommendations generated for user {user_id} - Count: {len(recommendations)}")
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating cart recommendations for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/recommendations/book/{book_id}", response_model=List[BookResponse])
+@limiter.limit("500/minute")
+@cache_result(ttl=900, strategy=CacheStrategy.LRU, key_prefix="book_recommendations")
+async def get_book_recommendations(
+    book_id: int,
+    limit: int = 5,
+    db: Session = Depends(get_db)
+):
+    """Get recommendations based on a specific book"""
+    try:
+        recommendation_service = RecommendationService(db)
+        recommendations = await recommendation_service.get_book_recommendations(book_id, limit)
+        
+        logger.info(f"✅ Book recommendations generated for book {book_id} - Count: {len(recommendations)}")
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating book recommendations for book {book_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/recommendations/trending", response_model=List[BookResponse])
+@limiter.limit("500/minute")
+@cache_result(ttl=1800, strategy=CacheStrategy.LRU, key_prefix="trending_recommendations")
+async def get_trending_recommendations(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """Get trending book recommendations"""
+    try:
+        recommendation_service = RecommendationService(db)
+        recommendations = await recommendation_service.get_trending_recommendations(limit)
+        
+        logger.info(f"✅ Trending recommendations generated - Count: {len(recommendations)}")
+        return recommendations
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating trending recommendations: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000")),
+        log_level="info"
+    ) 

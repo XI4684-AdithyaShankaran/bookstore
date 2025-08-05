@@ -1,0 +1,63 @@
+# Core FastAPI and Web Framework
+fastapi
+uvicorn[standard]
+pydantic[email]
+python-multipart
+
+# Database and ORM
+sqlalchemy
+psycopg2-binary
+alembic
+
+# Authentication and Security
+bcrypt
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
+
+# Caching and Session Management
+redis
+aioredis
+
+# HTTP and API Clients
+httpx
+requests
+aiohttp
+
+# Data Processing and ML (optimized versions)
+pandas
+numpy
+scikit-learn
+
+# Vector Database and Embeddings
+weaviate-client
+sentence-transformers
+
+# AI and LLM Integration (only essential ones)
+google-generativeai
+openai
+
+# Analytics and Evaluation (only if needed)
+ragas
+evaluate
+datasets
+
+# Search and Vector Operations
+chromadb
+faiss-cpu
+
+# Background Tasks and Async
+celery
+
+# Rate Limiting and API Management
+slowapi
+
+# Development and Testing (dev dependencies)
+pytest
+pytest-asyncio
+black
+flake8
+
+# Additional Utilities
+python-dateutil
+pytz

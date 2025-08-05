@@ -1,0 +1,38 @@
+# Core FastAPI and Web Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# HTTP and API Clients
+httpx
+requests
+aiohttp
+
+# Caching and Session Management
+redis
+aioredis
+
+# Rate Limiting and API Management
+slowapi
+cachetools
+
+# Authentication and Security
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+bcrypt
+
+# Monitoring and Logging
+structlog
+prometheus-client
+
+# Development and Testing
+pytest
+pytest-asyncio
+black
+flake8
+
+# Utilities
+python-dotenv
+python-dateutil 

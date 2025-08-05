@@ -1,0 +1,104 @@
+name: bookstore
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    # Core Framework Dependencies
+    - fastapi
+    - uvicorn[standard]
+    - pydantic
+    - pydantic-settings
+    - pydantic[email]
+    
+    # Database Dependencies
+    - sqlalchemy
+    - psycopg2-binary
+    - alembic
+    
+    # Authentication & Security
+    - python-jose[cryptography]
+    - passlib[bcrypt]
+    - python-multipart
+    - bcrypt
+    - email-validator
+    - PyJWT
+    - python-dotenv
+    
+    # HTTP & API Dependencies
+    - httpx
+    - requests
+    - aiohttp
+    
+    # Rate Limiting & Caching
+    - slowapi
+    - cachetools
+    
+    # Redis Dependencies
+    - redis>=4.0.0
+    - redis-py-cluster
+    - aioredis
+    
+    # Data Processing & Utilities
+    - pandas
+    - numpy
+    - python-dateutil
+    - pytz
+    
+    # Monitoring & Logging
+    - structlog
+    - prometheus-client
+    
+    # Testing Dependencies
+    - pytest
+    - pytest-asyncio
+    - pytest-cov
+    
+    # Development Dependencies
+    - black
+    - isort
+    - flake8
+    - mypy
+    
+    # Production Dependencies
+    - gunicorn
+    - uvloop
+    - psutil
+    
+    # AI/ML Dependencies
+    - scikit-learn
+    - scipy
+    - sentence-transformers
+    - google-generativeai
+    - openai
+    
+    # Analytics and Evaluation
+    - ragas
+    - evaluate
+    - datasets
+    
+    # Search and Vector Operations
+    - chromadb
+    - faiss-cpu
+    
+    # Background Tasks
+    - celery
+    
+    # Payment Processing
+    - stripe
+    - paypalrestsdk
+    
+    # Email & Notifications
+    - sendgrid
+    
+    # File Storage
+    - boto3
+    - Pillow
+    
+    # Vector Database
+    - weaviate-client
+    
+    # Kaggle API
+    - kaggle 

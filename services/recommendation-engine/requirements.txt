@@ -1,0 +1,31 @@
+# Core FastAPI and Web Framework
+fastapi
+uvicorn[standard]
+pydantic[email]
+
+# Database and ORM
+sqlalchemy
+psycopg2-binary
+
+# HTTP and API Clients
+httpx
+requests
+
+# Caching
+redis
+aioredis
+
+# Data Processing
+pandas
+numpy
+scikit-learn
+
+# ML and AI
+scipy
+
+# Development and Testing
+pytest
+pytest-asyncio
+
+# Utilities
+python-dotenv 
