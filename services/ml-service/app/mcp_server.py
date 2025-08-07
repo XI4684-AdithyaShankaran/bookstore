@@ -10,10 +10,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
-try:
-    import weaviate
-except ImportError:
-    weaviate = None
+import weaviate
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
