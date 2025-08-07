@@ -1,6 +1,7 @@
 "use client";
 
-import Header from '@/components/layout/Header';
+import { useState, useEffect } from 'react';
+
 import BookCard from '@/components/books/BookCard';
 import { useGetCartQuery, useUpdateCartItemMutation, useRemoveFromCartMutation } from '@/store/api/cartApi';
 import type { CartItem } from '@/store/api/cartApi';
@@ -34,8 +35,7 @@ export default function CartPage() {
   };
 
   return (
-    <div className="min-h-screen bg-amber-50">
-      <Header />
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 pt-20">
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center mb-12">
@@ -67,30 +67,30 @@ export default function CartPage() {
                     <div key={item.id} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
                       <div className="flex-1">
                         <BookCard book={{
-                            id: item.book.id,
-                            title: item.book.title,
-                            author: item.book.author,
-                            price: item.book.price,
-                            rating: 0,
-                            pages: 0,
-                            year: 0,
-                            language: '',
-                            isbn: '',
-                            isbn13: '',
-                            ratings_count: 0,
-                            text_reviews_count: 0,
-                            image_url: item.book.image_url
+                          id: item.book.id,
+                          title: item.book.title,
+                          author: item.book.author,
+                          price: item.book.price,
+                          rating: 0,
+                          pages: 0,
+                          year: 0,
+                          language: '',
+                          isbn: '',
+                          isbn13: '',
+                          ratings_count: 0,
+                          text_reviews_count: 0,
+                          image_url: item.book.image_url
                         }} />
                       </div>
                       <div className="flex items-center space-x-2">
-                        <button 
+                        <button
                           className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
                           onClick={() => handleQuantityChange(item.id, Math.max(1, item.quantity - 1))}
                         >
                           -
                         </button>
                         <span className="w-12 text-center">{item.quantity}</span>
-                        <button 
+                        <button
                           className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
                           onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
                         >
@@ -101,7 +101,7 @@ export default function CartPage() {
                         <p className="font-semibold text-gray-900">
                           ${((item.book.price || 0) * item.quantity).toFixed(2)}
                         </p>
-                        <button 
+                        <button
                           className="text-red-600 hover:text-red-700 text-sm"
                           onClick={() => handleRemoveItem(item.id)}
                         >
@@ -165,7 +165,95 @@ export default function CartPage() {
             </div>
           </div>
         )}
+
+        {/* Cart-based Recommendations */}
+        {cartItems && cartItems.length > 0 && (
+          <div className="mt-12">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Complete your collection</h2>
+            <CartRecommendations cartItems={cartItems} />
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Cart-based Recommendations Component  
+function CartRecommendations({ cartItems }: { cartItems: CartItem[] }) {
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      try {
+        // Get recommendations based on cart books
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/recommendations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_preferences: `Books similar to: ${cartItems.map(item => item.book.title).join(', ')}`,
+            limit: 4
+          })
+        });
+        const data = await response.json();
+        setRecommendations(data.recommendations || []);
+      } catch (error) {
+        console.error('Failed to fetch cart recommendations:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (cartItems.length > 0) {
+      fetchRecommendations();
+    }
+  }, [cartItems]);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="animate-pulse">
+            <div className="bg-gray-200 aspect-[3/4] rounded-lg mb-3"></div>
+            <div className="bg-gray-200 h-4 rounded mb-2"></div>
+            <div className="bg-gray-200 h-3 rounded w-3/4"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (recommendations.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {recommendations.map((book: any, index: number) => (
+        <div key={index} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
+          <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
+            <img
+              src={book.image_url || '/placeholder-book.jpg'}
+              alt={book.title}
+              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+            />
+          </div>
+          <div className="p-4">
+            <h3 className="font-semibold text-gray-900 line-clamp-2 mb-1">
+              {book.title}
+            </h3>
+            <p className="text-sm text-gray-600 mb-2">{book.author}</p>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-600">
+                {book.price ? `$${book.price}` : 'N/A'}
+              </span>
+              <button className="bg-amber-600 text-white px-3 py-1 rounded text-sm hover:bg-amber-700 transition-colors">
+                Add to Cart
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 } 

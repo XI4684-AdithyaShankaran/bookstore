@@ -61,6 +61,7 @@ const Toast = ({ message, type, duration = 5000, onClose }: ToastProps) => {
                 <button
                     onClick={onClose}
                     className="text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label="Close notification"
                 >
                     <X className="w-4 h-4" />
                 </button>

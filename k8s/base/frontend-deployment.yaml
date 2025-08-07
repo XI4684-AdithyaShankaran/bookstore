@@ -19,7 +19,7 @@ spec:
         - name: frontend
           image: us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bookstore-frontend:latest
           ports:
-            - containerPort: 3000
+            - containerPort: 80
           volumeMounts:
             - name: logs
               mountPath: /logs

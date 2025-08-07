@@ -1,196 +1,211 @@
 #!/usr/bin/env python3
 """
 Kaggle Data Loader for Bkmrk'd
-Loads book data from the Kaggle dataset: jealousleopard/goodreadsbooks
-Uses Kaggle API for direct dataset access
+Loads book data from the Kaggle dataset: saurabhbagchi/books-dataset
+Uses the downloaded dataset files
 """
 
 import os
 import sys
 import pandas as pd
-import requests
-import zipfile
-import tempfile
-from sqlalchemy import create_engine, text
+import numpy as np
+from datetime import datetime
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from main import Book, Base
 
-# Ensure Kaggle credentials are set for both local and cloud
-KAGGLE_USERNAME = os.environ.get("KAGGLE_USERNAME")
-KAGGLE_KEY = os.environ.get("KAGGLE_KEY")
-if not KAGGLE_USERNAME or not KAGGLE_KEY:
-    print("❌ Kaggle credentials not set. Please set KAGGLE_USERNAME and KAGGLE_KEY in your environment.")
-    sys.exit(1)
+# Add the backend service to the path for database models
+sys.path.append('/Users/apple/workspace/bookstore/services/backend-service')
 
-def download_kaggle_dataset():
-    """Download the Kaggle dataset using Kaggle API"""
-    try:
-        print("📚 Downloading Kaggle dataset: jealousleopard/goodreadsbooks")
-        
-        # Kaggle API endpoint
-        api_url = "https://www.kaggle.com/api/v1/datasets/download/jealousleopard/goodreadsbooks"
-        
-        # Set up authentication
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        # Download dataset
-        response = requests.get(
-            api_url,
-            auth=(KAGGLE_USERNAME, KAGGLE_KEY),
-            headers=headers,
-            stream=True
-        )
-        
-        if response.status_code != 200:
-            print(f"❌ Failed to download dataset: {response.status_code}")
-            return None
-        
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                tmp_file.write(chunk)
-            tmp_file_path = tmp_file.name
-        
-        # Extract zip file
-        extract_path = tempfile.mkdtemp()
-        with zipfile.ZipFile(tmp_file_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_path)
-        
-        # Clean up zip file
-        os.unlink(tmp_file_path)
-        
-        print(f"✅ Dataset downloaded and extracted to: {extract_path}")
-        return extract_path
-        
-    except Exception as e:
-        print(f"❌ Error downloading Kaggle dataset: {e}")
-        return None
+from app.database.database import SessionLocal
+from app.database.models import Book, User, Rating
+
+def load_csv_with_encoding(file_path, sep=';'):
+    """Load CSV file with automatic encoding detection"""
+    encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+    
+    for encoding in encodings:
+        try:
+            return pd.read_csv(file_path, sep=sep, quotechar='"', encoding=encoding, on_bad_lines='skip')
+        except Exception as e:
+            print(f"Failed with encoding {encoding}: {e}")
+            continue
+    
+    raise Exception(f"Could not read {file_path} with any encoding")
 
 def load_kaggle_dataset():
-    """Load the Kaggle dataset"""
+    """Load the Kaggle dataset from downloaded files"""
     try:
-        # Download the dataset
-        path = download_kaggle_dataset()
-        if not path:
-            return None
+        print("📖 Loading books data...")
+        books_df = load_csv_with_encoding('/Users/apple/workspace/bookstore/books_data/books.csv')
         
-        # Load the CSV file
-        csv_files = [f for f in os.listdir(path) if f.endswith('.csv')]
-        if not csv_files:
-            raise FileNotFoundError("No CSV files found in dataset")
+        print("👥 Loading users data...")
+        users_df = load_csv_with_encoding('/Users/apple/workspace/bookstore/books_data/users.csv')
         
-        # Load the first CSV file (assuming it's the main dataset)
-        csv_path = os.path.join(path, csv_files[0])
-        df = pd.read_csv(csv_path)
+        print("⭐ Loading ratings data...")
+        ratings_df = load_csv_with_encoding('/Users/apple/workspace/bookstore/books_data/ratings.csv')
         
-        print(f"✅ Loaded {len(df)} books from dataset")
-        print(f"📊 Dataset columns: {list(df.columns)}")
-        print(f"📊 Sample data:")
-        print(df.head(3))
+        print(f"📊 Dataset loaded:")
+        print(f"   Books: {len(books_df)} records")
+        print(f"   Users: {len(users_df)} records") 
+        print(f"   Ratings: {len(ratings_df)} records")
         
-        return df
+        return books_df, users_df, ratings_df
         
     except Exception as e:
-        print(f"❌ Error loading Kaggle dataset: {e}")
-        return None
+        print(f"❌ Error loading dataset: {e}")
+        return None, None, None
 
-def transform_data(df):
-    """Transform the Kaggle data to match our database schema"""
-    try:
-        # Map columns to our schema
-        transformed_data = []
-        
-        for _, row in df.iterrows():
-            book_data = {
-                "title": row.get('title', 'Unknown Title'),
-                "author": row.get('authors', 'Unknown Author'),
-                "year": row.get('publication_date', None),
-                "genre": row.get('genre', 'Unknown'),
-                "description": row.get('description', ''),
-                "isbn": row.get('isbn', ''),
-                "isbn13": row.get('isbn13', ''),
-                "rating": row.get('average_rating', 0.0),
-                "pages": row.get('num_pages', 0),
-                "language": row.get('language_code', 'eng'),
-                "publisher": row.get('publisher', 'Unknown'),
-                "cover_image": row.get('cover_image', ''),
-                "price": row.get('price', 0.0),
-                "ratings_count": row.get('ratings_count', 0),
-                "text_reviews_count": row.get('text_reviews_count', 0)
-            }
-            
-            # Clean up data
-            if pd.isna(book_data["year"]):
-                book_data["year"] = None
-            if pd.isna(book_data["rating"]):
-                book_data["rating"] = 0.0
-            if pd.isna(book_data["pages"]):
-                book_data["pages"] = 0
-            if pd.isna(book_data["price"]):
-                book_data["price"] = 0.0
-            if pd.isna(book_data["ratings_count"]):
-                book_data["ratings_count"] = 0
-            if pd.isna(book_data["text_reviews_count"]):
-                book_data["text_reviews_count"] = 0
-            
-            transformed_data.append(book_data)
-        
-        print(f"✅ Transformed {len(transformed_data)} books")
-        return transformed_data
-        
-    except Exception as e:
-        print(f"❌ Error transforming data: {e}")
-        return []
+def clean_data(books_df, users_df, ratings_df):
+    """Clean and prepare the data"""
+    print("🧹 Cleaning data...")
+    
+    # Clean books data
+    books_df = books_df.dropna(subset=['Book-Title', 'Book-Author'])
+    books_df['Year-Of-Publication'] = pd.to_numeric(books_df['Year-Of-Publication'], errors='coerce')
+    books_df = books_df[books_df['Year-Of-Publication'].notna()]
+    books_df = books_df[books_df['Year-Of-Publication'] > 1900]
+    books_df = books_df[books_df['Year-Of-Publication'] <= 2024]
+    
+    # Clean users data
+    users_df = users_df.dropna(subset=['User-ID'])
+    users_df['Age'] = pd.to_numeric(users_df['Age'], errors='coerce')
+    users_df = users_df[users_df['Age'].isna() | (users_df['Age'] >= 13)]
+    
+    # Clean ratings data
+    ratings_df = ratings_df.dropna(subset=['User-ID', 'ISBN', 'Book-Rating'])
+    ratings_df['Book-Rating'] = pd.to_numeric(ratings_df['Book-Rating'], errors='coerce')
+    ratings_df = ratings_df[ratings_df['Book-Rating'] >= 0]
+    
+    print(f"✅ Data cleaned:")
+    print(f"   Books: {len(books_df)} records")
+    print(f"   Users: {len(users_df)} records")
+    print(f"   Ratings: {len(ratings_df)} records")
+    
+    return books_df, users_df, ratings_df
 
-def load_to_database(books_data):
-    """Load books data into the database"""
+def load_to_database(books_df, users_df, ratings_df, max_books=500, max_users=50, max_ratings=200):
+    """Load data into the database"""
     try:
-        # Database connection
-        DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://user:password@localhost:5432/bookstore")
-        engine = create_engine(DATABASE_URL)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        
-        # Create tables
-        Base.metadata.create_all(bind=engine)
-        
         db = SessionLocal()
         
-        # Load books
-        loaded_count = 0
-        skipped_count = 0
+        # Import books
+        print("📚 Importing books...")
+        books_to_import = books_df.head(max_books)
         
-        for book_data in books_data:
-            # Check if book already exists (by ISBN or title+author)
-            existing_book = db.query(Book).filter(
-                (Book.isbn == book_data["isbn"]) if book_data["isbn"] else False
-            ).first()
-            
-            if existing_book:
-                skipped_count += 1
+        for _, row in books_to_import.iterrows():
+            try:
+                # Generate a random price between $9.99 and $29.99
+                price = round(np.random.uniform(9.99, 29.99), 2)
+                
+                # Generate a random rating between 3.5 and 5.0
+                rating = round(np.random.uniform(3.5, 5.0), 1)
+                
+                # Use the medium image URL or fallback
+                image_url = row['Image-URL-M'] if pd.notna(row['Image-URL-M']) else 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400'
+                
+                # Clean title and author
+                title = str(row['Book-Title'])[:200] if pd.notna(row['Book-Title']) else "Unknown Title"
+                author = str(row['Book-Author'])[:100] if pd.notna(row['Book-Author']) else "Unknown Author"
+                
+                book = Book(
+                    title=title,
+                    author=author,
+                    description=f"A fascinating book by {author} published in {int(row['Year-Of-Publication'])}.",
+                    genre="Fiction",  # Default genre
+                    price=price,
+                    rating=rating,
+                    image_url=image_url,
+                    isbn=str(row['ISBN']),
+                    publication_date=datetime(int(row['Year-Of-Publication']), 1, 1),
+                    language="English"
+                )
+                
+                db.add(book)
+                
+            except Exception as e:
+                print(f"⚠️  Skipping book {row.get('Book-Title', 'Unknown')}: {e}")
                 continue
-            
-            # Create new book
-            new_book = Book(**book_data)
-            db.add(new_book)
-            loaded_count += 1
-            
-            # Commit in batches
-            if loaded_count % 100 == 0:
-                db.commit()
-                print(f"✅ Loaded {loaded_count} books...")
         
-        # Final commit
         db.commit()
+        print(f"✅ Successfully imported {len(books_to_import)} books!")
+        
+        # Import users
+        print("👥 Importing users...")
+        users_to_import = users_df.head(max_users)
+        
+        for _, row in users_to_import.iterrows():
+            try:
+                username = f"user_{int(row['User-ID'])}"
+                email = f"user_{int(row['User-ID'])}@example.com"
+                
+                user = User(
+                    email=email,
+                    username=username,
+                    hashed_password="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iQeO",  # Default password: "password"
+                    full_name=f"User {int(row['User-ID'])}",
+                    is_active=True
+                )
+                
+                db.add(user)
+                
+            except Exception as e:
+                print(f"⚠️  Skipping user {row.get('User-ID', 'Unknown')}: {e}")
+                continue
+        
+        db.commit()
+        print(f"✅ Successfully imported {len(users_to_import)} users!")
+        
+        # Import ratings
+        print("⭐ Importing ratings...")
+        ratings_to_import = ratings_df.head(max_ratings)
+        
+        for _, row in ratings_to_import.iterrows():
+            try:
+                # Check if user and book exist
+                user_exists = db.query(User).filter(User.id == int(row['User-ID'])).first()
+                book_exists = db.query(Book).filter(Book.isbn == str(row['ISBN'])).first()
+                
+                if user_exists and book_exists:
+                    rating = Rating(
+                        user_id=int(row['User-ID']),
+                        book_id=book_exists.id,
+                        rating=float(row['Book-Rating']),
+                        review=f"User rating for {book_exists.title}"
+                    )
+                    db.add(rating)
+                
+            except Exception as e:
+                print(f"⚠️  Skipping rating: {e}")
+                continue
+        
+        db.commit()
+        print(f"✅ Successfully imported ratings!")
+        
+        # Update book ratings based on actual ratings
+        print("📊 Updating book ratings...")
+        for book in db.query(Book).all():
+            book_ratings = db.query(Rating).filter(Rating.book_id == book.id).all()
+            if book_ratings:
+                avg_rating = sum(r.rating for r in book_ratings) / len(book_ratings)
+                book.rating = round(avg_rating, 1)
+        
+        db.commit()
+        print("✅ Book ratings updated!")
+        
+        # Final statistics
+        total_books = db.query(Book).count()
+        total_users = db.query(User).count()
+        total_ratings = db.query(Rating).count()
+        
+        print(f"\n🎉 Import completed successfully!")
+        print(f"📚 Total books in database: {total_books}")
+        print(f"👥 Total users in database: {total_users}")
+        print(f"⭐ Total ratings in database: {total_ratings}")
+        
         db.close()
         
-        print(f"✅ Database loading completed:")
-        print(f"   - Loaded: {loaded_count} books")
-        print(f"   - Skipped: {skipped_count} books (already exist)")
-        
     except Exception as e:
-        print(f"❌ Error loading to database: {e}")
+        print(f"❌ Error during import: {e}")
         if 'db' in locals():
             db.rollback()
             db.close()
@@ -201,19 +216,16 @@ def main():
         print("🚀 Starting Kaggle data loading process...")
         
         # Load dataset
-        df = load_kaggle_dataset()
-        if df is None:
+        books_df, users_df, ratings_df = load_kaggle_dataset()
+        if books_df is None:
             print("❌ Failed to load dataset")
             return
         
-        # Transform data
-        books_data = transform_data(df)
-        if not books_data:
-            print("❌ Failed to transform data")
-            return
+        # Clean data
+        books_df, users_df, ratings_df = clean_data(books_df, users_df, ratings_df)
         
         # Load to database
-        load_to_database(books_data)
+        load_to_database(books_df, users_df, ratings_df)
         
         print("✅ Data loading process completed successfully!")
         

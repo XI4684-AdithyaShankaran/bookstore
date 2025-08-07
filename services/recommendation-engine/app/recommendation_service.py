@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, and_, or_
 from fastapi import FastAPI, HTTPException, status, Depends
 from pydantic import BaseModel
-import redis.asyncio as redis
+import redis
 import os
 
 logger = logging.getLogger(__name__)

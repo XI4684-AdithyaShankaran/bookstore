@@ -88,7 +88,29 @@ const nextConfig = {
         headers: [
           {
             key: 'Cache-Control',
-            value: 'public, max-age=3600, s-maxage=3600',
+            value: 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+          },
+        ],
+      },
+      {
+        source: '/api/books',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=600, s-maxage=1800, stale-while-revalidate=3600',
+          },
+          {
+            key: 'Vary',
+            value: 'Accept-Encoding, Accept',
+          },
+        ],
+      },
+      {
+        source: '/_next/static/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
           },
         ],
       },
@@ -136,10 +158,7 @@ const nextConfig = {
     removeConsole: process.env.NODE_ENV === 'production',
   },
 
-  // Disable static generation for pages that use authentication
-  async generateStaticParams() {
-    return []
-  },
+
 }
 
 module.exports = nextConfig

@@ -233,8 +233,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      weaviate:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -273,8 +271,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      weaviate:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]

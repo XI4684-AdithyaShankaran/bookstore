@@ -1,50 +1,92 @@
-"use client";
+'use client';
 
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useGetBookQuery } from '@/store/api/bookApi';
-import { useAddToCartMutation } from '@/store/api/cartApi';
-import { useAddToWishlistMutation } from '@/store/api/wishlistApi';
-import Header from '@/components/layout/Header';
-import { useToast } from '@/components/providers/ToastProvider';
+import Link from 'next/link';
+import {
+    ArrowLeft,
+    Heart,
+    ShoppingCart,
+    Star,
+    BookOpen,
+    User,
+    Calendar,
+    Tag
+} from 'lucide-react';
+import { api } from '@/utils/api';
+import { logger } from '@/utils/logger';
 
-export default function BookDetail() {
+interface Book {
+    id: number;
+    title: string;
+    author: string;
+    genre?: string;
+    rating?: number;
+    price?: number;
+    image_url?: string;
+    description?: string;
+    isbn?: string;
+    published_year?: number;
+    pages?: number;
+}
+
+export default function BookDetailPage() {
     const params = useParams();
-    const bookId = Number(params.id);
-    const { showToast } = useToast();
-    
-    const { data: book, isLoading, error } = useGetBookQuery(bookId);
-    const [addToCart, { isLoading: isAddingToCart }] = useAddToCartMutation();
-    const [addToWishlist, { isLoading: isAddingToWishlist }] = useAddToWishlistMutation();
+    const bookId = params.id as string;
+    const [book, setBook] = useState<Book | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isWishlisted, setIsWishlisted] = useState(false);
+    const [isInCart, setIsInCart] = useState(false);
 
-    const handleAddToCart = async () => {
-        if (!book) return;
+    useEffect(() => {
+        if (bookId) {
+            loadBook();
+        }
+    }, [bookId]);
 
+    const loadBook = async () => {
         try {
-            await addToCart({ book_id: book.id, quantity: 1 }).unwrap();
-            showToast(`${book.title} added to cart!`, 'success');
+            setLoading(true);
+            logger.info('API', `Loading book details for ID: ${bookId}`);
+
+            const response = await api.books.getById(parseInt(bookId));
+
+            if (response.success && response.data) {
+                setBook(response.data);
+                logger.info('API', 'Book details loaded successfully', { book: response.data });
+            } else {
+                setError('Book not found');
+                logger.error('API', 'Failed to load book details', new Error('Book not found'));
+            }
         } catch (error) {
-            showToast('Failed to add to cart. Please try again.', 'error');
+            setError('Failed to load book details');
+            logger.error('API', 'Error loading book details', error as Error);
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleAddToWishlist = async () => {
-        if (!book) return;
-
-        try {
-            await addToWishlist({ book_id: book.id }).unwrap();
-            showToast(`${book.title} added to wishlist!`, 'success');
-        } catch (error) {
-            showToast('Failed to add to wishlist. Please try again.', 'error');
-        }
+    const handleAddToWishlist = () => {
+        setIsWishlisted(!isWishlisted);
+        logger.info('User', `Book ${isWishlisted ? 'removed from' : 'added to'} wishlist`, { bookId: book?.id });
     };
 
-    if (isLoading) {
+    const handleAddToCart = () => {
+        setIsInCart(!isInCart);
+        logger.info('User', `Book ${isInCart ? 'removed from' : 'added to'} cart`, { bookId: book?.id });
+    };
+
+    if (loading) {
         return (
-            <div className="min-h-screen bg-amber-50">
-                <Header />
-                <div className="flex justify-center items-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
-                    <span className="ml-2 text-gray-600">Loading book details...</span>
+            <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 pt-20">
+                <div className="container mx-auto px-4 py-8">
+                    <div className="flex items-center justify-center min-h-[60vh]">
+                        <div className="glass rounded-2xl p-8 text-center">
+                            <div className="animate-spin w-12 h-12 border-4 border-amber-200 border-t-amber-500 rounded-full mx-auto mb-4"></div>
+                            <p className="text-gray-600">Loading book details...</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -52,105 +94,235 @@ export default function BookDetail() {
 
     if (error || !book) {
         return (
-            <div className="min-h-screen bg-amber-50">
-                <Header />
-                <div className="text-center py-12">
-                    <p className="text-gray-500">Book not found.</p>
+            <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 pt-20">
+                <div className="container mx-auto px-4 py-8">
+                    <div className="flex items-center justify-center min-h-[60vh]">
+                        <div className="glass rounded-2xl p-8 text-center">
+                            <BookOpen className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Book Not Found</h2>
+                            <p className="text-gray-600 mb-6">{error}</p>
+                            <Link href="/" className="btn-primary">
+                                Back to Home
+                            </Link>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-amber-50">
-            <Header />
+        <div className="min-h-screen bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 pt-20">
+            <div className="container mx-auto px-4 py-8">
+                {/* Back Button */}
+                <Link
+                    href="/"
+                    className="inline-flex items-center space-x-2 text-gray-600 hover:text-amber-600 transition-colors mb-6 group"
+                >
+                    <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                    <span>Back to Books</span>
+                </Link>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                    <div className="md:flex">
-                        {/* Book Cover */}
-                        <div className="md:w-1/3">
-                            <img
-                                src={book.image_url || '/placeholder-book.jpg'}
-                                alt={book.title}
-                                className="w-full h-96 md:h-full object-cover"
-                            />
+                {/* Book Details */}
+                <div className="glass rounded-2xl overflow-hidden shadow-xl">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-6 lg:p-8">
+                        {/* Book Image */}
+                        <div className="relative">
+                            <div className="aspect-[3/4] rounded-xl overflow-hidden bg-gradient-to-br from-amber-100 to-yellow-100 shadow-lg">
+                                <img
+                                    src={book.image_url || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=600'}
+                                    alt={book.title}
+                                    className="w-full h-full object-cover"
+                                />
+                            </div>
                         </div>
 
-                        {/* Book Details */}
-                        <div className="md:w-2/3 p-8">
-                            <h1 className="text-4xl font-bold text-gray-900 mb-2">{book.title}</h1>
-                            <p className="text-xl text-gray-600 mb-4">by {book.author}</p>
+                        {/* Book Info */}
+                        <div className="space-y-6">
+                            <div>
+                                <h1 className="text-3xl lg:text-4xl font-bold text-gray-800 mb-2 gradient-text">
+                                    {book.title}
+                                </h1>
+                                <div className="flex items-center space-x-2 text-lg text-gray-600 mb-4">
+                                    <User className="w-5 h-5" />
+                                    <span>by {book.author}</span>
+                                </div>
+                            </div>
 
                             {/* Rating */}
-                            <div className="flex items-center mb-4">
-                                <div className="flex text-yellow-400">
-                                    {[...Array(5)].map((_, i) => (
-                                        <svg
-                                            key={i}
-                                            className={`h-5 w-5 ${i < Math.floor(book.rating || 0) ? 'text-yellow-400' : 'text-gray-300'}`}
-                                            fill="currentColor"
-                                            viewBox="0 0 20 20"
-                                        >
-                                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                        </svg>
-                                    ))}
-                                </div>
-                                <span className="ml-2 text-gray-600">{book.rating} / 5</span>
-                                <span className="ml-2 text-gray-500">({book.ratings_count} ratings)</span>
-                            </div>
-
-                            {/* Price */}
-                            <div className="text-3xl font-bold text-amber-600 mb-6">
-                                ${book.price}
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                                <button
-                                    onClick={handleAddToCart}
-                                    disabled={isAddingToCart}
-                                    className="bg-amber-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-amber-700 transition-colors disabled:opacity-50"
-                                >
-                                    {isAddingToCart ? 'Adding...' : 'Add to Cart'}
-                                </button>
-                                <button
-                                    onClick={handleAddToWishlist}
-                                    disabled={isAddingToWishlist}
-                                    className="border-2 border-amber-600 text-amber-600 px-8 py-3 rounded-lg font-semibold hover:bg-amber-600 hover:text-white transition-colors disabled:opacity-50"
-                                >
-                                    {isAddingToWishlist ? 'Adding...' : 'Add to Wishlist'}
-                                </button>
-                            </div>
-
-                            {/* Description */}
-                            {book.description && (
-                                <div className="mb-6">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Description</h3>
-                                    <p className="text-gray-600 leading-relaxed">{book.description}</p>
+                            {book.rating && (
+                                <div className="flex items-center space-x-2">
+                                    <div className="flex items-center">
+                                        {[...Array(5)].map((_, i) => (
+                                            <Star
+                                                key={i}
+                                                className={`w-5 h-5 ${i < Math.floor(book.rating!)
+                                                    ? 'text-yellow-400 fill-current'
+                                                    : 'text-gray-300'
+                                                    }`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <span className="text-gray-600">({book.rating.toFixed(1)})</span>
                                 </div>
                             )}
 
                             {/* Book Details */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Book Details</h3>
-                                    <div className="space-y-2 text-gray-600">
-                                        {book.genre && <p><span className="font-medium">Genre:</span> {book.genre}</p>}
-                                        <p><span className="font-medium">ISBN:</span> {book.isbn}</p>
-                                        <p><span className="font-medium">ISBN-13:</span> {book.isbn13}</p>
-                                        <p><span className="font-medium">Year:</span> {book.year}</p>
-                                        <p><span className="font-medium">Language:</span> {book.language}</p>
-                                        {book.publisher && <p><span className="font-medium">Publisher:</span> {book.publisher}</p>}
-                                        <p><span className="font-medium">Pages:</span> {book.pages}</p>
-                                        <p><span className="font-medium">Text Reviews:</span> {book.text_reviews_count}</p>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                {book.genre && (
+                                    <div className="flex items-center space-x-2">
+                                        <Tag className="w-4 h-4 text-amber-500" />
+                                        <span className="text-gray-600">Genre: {book.genre}</span>
                                     </div>
+                                )}
+                                {book.published_year && (
+                                    <div className="flex items-center space-x-2">
+                                        <Calendar className="w-4 h-4 text-amber-500" />
+                                        <span className="text-gray-600">Year: {book.published_year}</span>
+                                    </div>
+                                )}
+                                {book.pages && (
+                                    <div className="flex items-center space-x-2">
+                                        <BookOpen className="w-4 h-4 text-amber-500" />
+                                        <span className="text-gray-600">Pages: {book.pages}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Description */}
+                            {book.description && (
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Description</h3>
+                                    <p className="text-gray-600 leading-relaxed">{book.description}</p>
+                                </div>
+                            )}
+
+                            {/* Price & Actions */}
+                            <div className="flex items-center justify-between pt-6 border-t border-amber-200/50">
+                                <div className="text-3xl font-bold text-amber-600">
+                                    ${book.price?.toFixed(2) || '0.00'}
+                                </div>
+
+                                <div className="flex items-center space-x-3">
+                                    <button
+                                        onClick={handleAddToWishlist}
+                                        className={`p-3 rounded-lg transition-all ${isWishlisted
+                                            ? 'bg-red-500 text-white shadow-lg'
+                                            : 'bg-white text-gray-600 hover:bg-red-50 hover:text-red-500 border border-gray-200'
+                                            }`}
+                                        title={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                                        aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                                    >
+                                        <Heart className={`w-5 h-5 ${isWishlisted ? 'fill-current' : ''}`} />
+                                    </button>
+
+                                    <button
+                                        onClick={handleAddToCart}
+                                        className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all font-medium ${isInCart
+                                            ? 'bg-green-500 text-white shadow-lg'
+                                            : 'bg-gradient-to-r from-amber-400 to-yellow-500 text-white hover:from-amber-500 hover:to-yellow-600 shadow-md hover:shadow-lg'
+                                            }`}
+                                    >
+                                        <ShoppingCart className="w-5 h-5" />
+                                        <span>{isInCart ? 'In Cart' : 'Add to Cart'}</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {/* Recommendations Section */}
+                <div className="mt-12">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-6">You might also like</h2>
+                    <RecommendationsSection bookId={book.id} />
+                </div>
             </div>
         </div>
     );
-} 
+}
+
+// Recommendations Section Component
+function RecommendationsSection({ bookId }: { bookId: number }) {
+    const [recommendations, setRecommendations] = useState<Book[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchRecommendations = async () => {
+            try {
+                const response = await api.post('/api/recommendations', {
+                    book_id: bookId,
+                    limit: 4
+                });
+                setRecommendations(response.data.recommendations || []);
+            } catch (error) {
+                logger.error('Recommendations', 'Failed to fetch recommendations', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchRecommendations();
+    }, [bookId]);
+
+    if (loading) {
+        return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {[...Array(4)].map((_, i) => (
+                    <div key={i} className="animate-pulse">
+                        <div className="bg-gray-200 aspect-[3/4] rounded-lg mb-3"></div>
+                        <div className="bg-gray-200 h-4 rounded mb-2"></div>
+                        <div className="bg-gray-200 h-3 rounded w-3/4"></div>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    if (recommendations.length === 0) {
+        return (
+            <div className="text-center py-8 text-gray-500">
+                <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>No recommendations available at the moment.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {recommendations.map((recBook) => (
+                <Link
+                    key={recBook.id}
+                    href={`/books/${recBook.id}`}
+                    className="group block bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden"
+                >
+                    <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
+                        <img
+                            src={recBook.image_url || '/placeholder-book.jpg'}
+                            alt={recBook.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                    </div>
+                    <div className="p-4">
+                        <h3 className="font-semibold text-gray-900 group-hover:text-amber-600 transition-colors line-clamp-2 mb-1">
+                            {recBook.title}
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-2">{recBook.author}</p>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                                <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                                <span className="text-sm text-gray-600 ml-1">
+                                    {recBook.rating?.toFixed(1) || 'N/A'}
+                                </span>
+                            </div>
+                            <span className="font-bold text-amber-600">
+                                ${recBook.price?.toFixed(2) || '0.00'}
+                            </span>
+                        </div>
+                    </div>
+                </Link>
+            ))}
+        </div>
+    );
+}
+

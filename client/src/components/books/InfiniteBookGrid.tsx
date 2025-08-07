@@ -127,7 +127,7 @@ export default function InfiniteBookGrid({
 
         return (
             <div className="text-center py-8">
-                <p className="text-gray-500">You've reached the end of all books!</p>
+                <p className="text-gray-500">You&apos;ve reached the end of all books!</p>
             </div>
         );
     }, [hasMoreBooks, books.length]);

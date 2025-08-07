@@ -10,32 +10,46 @@ import logging
 import re
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
-import weaviate
-from weaviate import Client
+try:
+    import weaviate
+except ImportError:
+    weaviate = None
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import httpx
-from openai import OpenAI
+# Using Gemini instead of OpenAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Gemini with proper configuration
-# genai.configure(api_key=os.getenv("GEMINI_API_KEY")) # This line is no longer needed
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Configure the model with proper parameters
-# model = genai.GenerativeModel( # This line is no longer needed
-#     'gemini-pro',
-#     generation_config=genai.types.GenerationConfig(
-#         temperature=0.7,
-#         top_p=0.9,
-#         top_k=40,
-#         max_output_tokens=2048,
-#         candidate_count=1
-#     )
-# )
+# Configure the model with proper parameters for different tasks
+def get_gemini_model(task_type: str = "recommendation"):
+    """Get Gemini model with appropriate temperature for different tasks"""
+    temperature_map = {
+        "recommendation": 0.3,  # Low temperature for consistent recommendations
+        "search": 0.1,          # Very low temperature for precise search
+        "enhancement": 0.2,     # Low temperature for factual enhancement
+        "creative": 0.7,        # Higher temperature for creative tasks
+        "default": 0.3          # Default low temperature
+    }
+    
+    temperature = temperature_map.get(task_type, temperature_map["default"])
+    
+    return genai.GenerativeModel(
+        'gemini-pro',
+        generation_config=genai.types.GenerationConfig(
+            temperature=temperature,
+            top_p=0.9,
+            top_k=40,
+            max_output_tokens=2048,
+            candidate_count=1
+        )
+    )
 
 # System prompts for different tasks
 SYSTEM_PROMPTS = {
@@ -75,11 +89,48 @@ SYSTEM_PROMPTS = {
     """
 }
 
-# Initialize Weaviate
+# Initialize Weaviate (will be set up in startup if available)
 weaviate_url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+weaviate_client = None
 
-app = FastAPI(title="MCP Server - AI Recommendation Engine")
+# Initialize Gemini model (configured at module level)
+gemini_model = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI"""
+    global gemini_model, weaviate_client
+    try:
+        # Initialize Gemini model if API key is available
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key:
+            gemini_model = get_gemini_model("default")
+            logger.info("✅ Gemini client initialized")
+        else:
+            logger.warning("⚠️  Gemini API key not found - AI features will be limited")
+        
+        # Initialize Weaviate client if URL is configured and package is available
+        weaviate_url = os.getenv("WEAVIATE_URL")
+        if weaviate_url and weaviate:
+            try:
+                weaviate_client = weaviate.Client(weaviate_url)
+                await initialize_weaviate_schema()
+                logger.info("✅ Weaviate client initialized")
+            except Exception as e:
+                logger.warning(f"⚠️  Weaviate connection failed: {e}")
+                logger.warning("⚠️  Running without vector database (some features may be limited)")
+        elif not weaviate:
+            logger.warning("⚠️  Weaviate package not installed - install with: pip install weaviate-client")
+        else:
+            logger.info("ℹ️  Weaviate URL not configured - running without vector database")
+        
+        logger.info("✅ MCP Server started successfully")
+        yield
+    except Exception as e:
+        logger.error(f"❌ MCP Server startup failed: {e}")
+        raise
+
+app = FastAPI(title="MCP Server - AI Recommendation Engine", lifespan=lifespan)
 
 class BookRecommendationRequest(BaseModel):
     user_id: Optional[int] = None
@@ -103,73 +154,68 @@ class BookEmbeddingResponse(BaseModel):
     success: bool
     message: str
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the MCP server"""
-    try:
-        # Initialize Weaviate schema
-        await initialize_weaviate_schema()
-        logger.info("✅ MCP Server started successfully")
-    except Exception as e:
-        logger.error(f"❌ MCP Server startup failed: {e}")
-        raise
+
 
 async def initialize_weaviate_schema():
     """Initialize Weaviate schema for book embeddings"""
     try:
         # Check if Book class exists
-        schema = client.schema.get()
+        schema = weaviate_client.schema.get()
         book_class_exists = any(
             class_obj["class"] == "Book" 
             for class_obj in schema.get("classes", [])
         )
         
         if not book_class_exists:
-            # Create Book class schema
-            class_obj = {
-                "class": "Book",
-                "vectorizer": "text2vec-transformers",
-                "properties": [
-                    {
-                        "name": "book_id",
-                        "dataType": ["int"],
-                        "description": "Unique book identifier"
-                    },
-                    {
-                        "name": "title",
-                        "dataType": ["text"],
-                        "description": "Book title"
-                    },
-                    {
-                        "name": "author",
-                        "dataType": ["text"],
-                        "description": "Book author"
-                    },
-                    {
-                        "name": "description",
-                        "dataType": ["text"],
-                        "description": "Book description"
-                    },
-                    {
-                        "name": "genre",
-                        "dataType": ["text"],
-                        "description": "Book genre"
-                    },
-                    {
-                        "name": "rating",
-                        "dataType": ["number"],
-                        "description": "Book rating"
-                    },
-                    {
-                        "name": "price",
-                        "dataType": ["number"],
-                        "description": "Book price"
-                    }
-                ]
-            }
-            
-            client.schema.create_class(class_obj)
-            logger.info("✅ Weaviate Book schema created")
+            try:
+                # Create Book class schema with a simpler vectorizer
+                class_obj = {
+                    "class": "Book",
+                    "vectorizer": "none",  # Use none for local testing
+                    "properties": [
+                        {
+                            "name": "book_id",
+                            "dataType": ["int"],
+                            "description": "Unique book identifier"
+                        },
+                        {
+                            "name": "title",
+                            "dataType": ["text"],
+                            "description": "Book title"
+                        },
+                        {
+                            "name": "author",
+                            "dataType": ["text"],
+                            "description": "Book author"
+                        },
+                        {
+                            "name": "description",
+                            "dataType": ["text"],
+                            "description": "Book description"
+                        },
+                        {
+                            "name": "genre",
+                            "dataType": ["text"],
+                            "description": "Book genre"
+                        },
+                        {
+                            "name": "rating",
+                            "dataType": ["number"],
+                            "description": "Book rating"
+                        },
+                        {
+                            "name": "price",
+                            "dataType": ["number"],
+                            "description": "Book price"
+                        }
+                    ]
+                }
+                
+                weaviate_client.schema.create_class(class_obj)
+                logger.info("✅ Weaviate Book schema created")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not create Weaviate schema: {e}")
+                logger.warning("⚠️  Running without vector database (some features may be limited)")
         else:
             logger.info("✅ Weaviate Book schema already exists")
             
@@ -181,11 +227,17 @@ async def initialize_weaviate_schema():
 async def embed_book(request: BookEmbeddingRequest):
     """Embed a book into the vector database"""
     try:
+        if not weaviate_client:
+            raise HTTPException(
+                status_code=503, 
+                detail="Vector database not available - Weaviate not configured"
+            )
+        
         # Create book text for embedding
         book_text = f"Title: {request.title}\nAuthor: {request.author}\nGenre: {request.genre}\nDescription: {request.description}"
         
         # Add book to Weaviate
-        client.data_object.create(
+        weaviate_client.data_object.create(
             class_name="Book",
             data_object={
                 "book_id": request.book_id,
@@ -237,16 +289,17 @@ async def get_recommendations(request: BookRecommendationRequest):
         }}
         """
         
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPTS["recommendation"]},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2048
-        )
-        recommendations_data = parse_recommendations(response.choices[0].message.content)
+        if not gemini_model:
+            raise HTTPException(
+                status_code=503, 
+                detail="AI service not available - Gemini API key not configured"
+            )
+        
+        # Combine system prompt and user prompt for Gemini
+        full_prompt = f"{SYSTEM_PROMPTS['recommendation']}\n\n{prompt}"
+        
+        response = gemini_model.generate_content(full_prompt)
+        recommendations_data = parse_recommendations(response.text)
         
         # Enhance with vector search
         enhanced_recommendations = await enhance_with_vector_search(
@@ -262,6 +315,66 @@ async def get_recommendations(request: BookRecommendationRequest):
         
     except Exception as e:
         logger.error(f"❌ Error getting recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search", response_model=BookRecommendationResponse)
+async def search_books(request: BookRecommendationRequest):
+    """AI-powered book search with low temperature for precision"""
+    try:
+        if not request.user_preferences:
+            raise HTTPException(status_code=400, detail="Search query is required")
+        
+        search_query = " ".join(request.user_preferences)
+        
+        prompt = f"""
+        {SYSTEM_PROMPTS['search']}
+        
+        Search Query: {search_query}
+        Limit: {request.limit}
+        
+        Please provide {request.limit} relevant book search results in JSON format:
+        {{
+            "recommendations": [
+                {{
+                    "title": "Book Title",
+                    "author": "Author Name",
+                    "genre": "Genre",
+                    "reasoning": "Why this book matches the search",
+                    "confidence": 0.95
+                }}
+            ],
+            "reasoning": "Search reasoning",
+            "confidence": 0.9
+        }}
+        """
+        
+        if not gemini_model:
+            raise HTTPException(
+                status_code=503, 
+                detail="AI service not available - Gemini API key not configured"
+            )
+        
+        # Use search-specific model with low temperature
+        search_model = get_gemini_model("search")
+        full_prompt = f"{SYSTEM_PROMPTS['search']}\n\n{prompt}"
+        
+        response = search_model.generate_content(full_prompt)
+        search_results = parse_recommendations(response.text)
+        
+        # Enhance with vector search
+        enhanced_results = await enhance_with_vector_search(
+            search_results.get("recommendations", []), 
+            request
+        )
+        
+        return BookRecommendationResponse(
+            recommendations=enhanced_results,
+            reasoning=search_results.get("reasoning", ""),
+            confidence=search_results.get("confidence", 0.8)
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error searching books: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def build_recommendation_context(request: BookRecommendationRequest) -> str:
@@ -337,7 +450,7 @@ async def search_similar_books_by_id(book_id: int, limit: int) -> List[Dict[str,
             return []
         
         # Search for similar books
-        result = client.query.get("Book", [
+        result = weaviate_client.query.get("Book", [
             "book_id", "title", "author", "genre", "rating", "price"
         ]).with_near_vector({
             "vector": book_details.get("vector", [])
@@ -365,7 +478,7 @@ async def search_similar_books_by_id(book_id: int, limit: int) -> List[Dict[str,
 async def search_books_by_text(text: str, limit: int) -> List[Dict[str, Any]]:
     """Search books by text using vector database"""
     try:
-        result = client.query.get("Book", [
+        result = weaviate_client.query.get("Book", [
             "book_id", "title", "author", "genre", "rating", "price"
         ]).with_near_text({
             "concepts": [text]
@@ -393,7 +506,7 @@ async def search_books_by_text(text: str, limit: int) -> List[Dict[str, Any]]:
 async def get_popular_books_from_vector_db(limit: int) -> List[Dict[str, Any]]:
     """Get popular books from vector database"""
     try:
-        result = client.query.get("Book", [
+        result = weaviate_client.query.get("Book", [
             "book_id", "title", "author", "genre", "rating", "price"
         ]).with_sort([
             {
@@ -424,7 +537,7 @@ async def get_popular_books_from_vector_db(limit: int) -> List[Dict[str, Any]]:
 async def get_book_details_from_vector_db(book_id: int) -> Dict[str, Any]:
     """Get book details from vector database"""
     try:
-        result = client.query.get("Book", [
+        result = weaviate_client.query.get("Book", [
             "book_id", "title", "author", "genre", "rating", "price", "_additional {vector}"
         ]).with_where({
             "path": ["book_id"],
@@ -531,9 +644,25 @@ def parse_recommendations(content: str) -> Dict[str, Any]:
 async def health_check():
     """Health check endpoint"""
     try:
+        status = {"status": "healthy"}
+        
+        # Check Gemini client
+        if gemini_model:
+            status["gemini"] = "connected"
+        else:
+            status["gemini"] = "not_configured"
+        
         # Check Weaviate connection
-        client.schema.get()
-        return {"status": "healthy", "weaviate": "connected"}
+        if weaviate_client:
+            try:
+                weaviate_client.schema.get()
+                status["weaviate"] = "connected"
+            except Exception as e:
+                status["weaviate"] = f"error: {str(e)}"
+        else:
+            status["weaviate"] = "not_configured"
+        
+        return status
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 

@@ -68,16 +68,16 @@ spec:
               service:
                 name: mcp-server
                 port:
-                  number: 8001
+                  number: 80
 
-          # Analytics Server routes (RAGAS Analytics)
+          # Analytics Server routes (BigQuery Analytics)
           - path: /analytics(/|$)(.*)
             pathType: Prefix
             backend:
               service:
-                name: analytics-server
+                name: bigquery-analytics
                 port:
-                  number: 8002
+                  number: 80
 
           # Health check routes
           - path: /health
@@ -104,4 +104,13 @@ spec:
               service:
                 name: weaviate
                 port:
-                  number: 8080
+                  number: 80
+
+          # PgAdmin routes (Database Admin)
+          - path: /pgadmin(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: pgadmin
+                port:
+                  number: 80

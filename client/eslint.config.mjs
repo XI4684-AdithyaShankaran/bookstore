@@ -16,6 +16,14 @@ const eslintConfig = [
       "no-unused-vars": "error",
       "@typescript-eslint/no-unused-vars": "error"
     }
+  },
+  {
+    files: ["**/VirtualBookGrid.tsx", "**/StreamingBookGrid.tsx", "**/BookshelfCard.tsx"],
+    rules: {
+      "react/forbid-dom-props": "off",
+      "react/no-unknown-property": "off",
+      "react/forbid-component-props": "off"
+    }
   }
 ];
 

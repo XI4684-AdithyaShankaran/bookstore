@@ -26,7 +26,7 @@ import jwt
 from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, validator
-import redis.asyncio as redis
+import redis
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -193,7 +193,7 @@ class TokenBucketRateLimiter:
     async def _get_bucket(self, key: str, max_requests: int, window_seconds: int) -> Dict[str, float]:
         """Get bucket from Redis with fallback to local cache - O(1)"""
         try:
-            bucket_data = await self.redis.get(key)
+            bucket_data = self.redis.get(key)
             if bucket_data:
                 return json.loads(bucket_data)
         except Exception as e:
@@ -210,7 +210,7 @@ class TokenBucketRateLimiter:
     async def _update_bucket(self, key: str, bucket: Dict[str, float]):
         """Update bucket in Redis - O(1)"""
         try:
-            await self.redis.setex(
+            self.redis.setex(
                 key, 
                 int(bucket['window_seconds'] * 2),  # TTL = 2x window
                 json.dumps(bucket)
@@ -222,11 +222,11 @@ class TokenBucketRateLimiter:
         """Clean up expired buckets - O(k) where k is number of buckets"""
         try:
             pattern = "rate_limit:*"
-            keys = await self.redis.keys(pattern)
+            keys = self.redis.keys(pattern)
             
             if keys:
                 # Batch delete expired keys
-                await self.redis.delete(*keys[:1000])  # Limit batch size
+                self.redis.delete(*keys[:1000])  # Limit batch size
         except Exception as e:
             logger.warning(f"Cleanup error: {e}")
 
@@ -516,7 +516,7 @@ class UltraSecureAuthService:
     async def _check_auth_rate_limit(self, attempt_key: str) -> bool:
         """Check authentication rate limiting with exponential backoff - O(1)"""
         try:
-            attempt_data = await self.redis.get(attempt_key)
+            attempt_data = self.redis.get(attempt_key)
             if not attempt_data:
                 return True
             
@@ -539,7 +539,7 @@ class UltraSecureAuthService:
         """Record failed authentication attempt - O(1)"""
         try:
             current_time = time.time()
-            attempt_data = await self.redis.get(attempt_key)
+            attempt_data = self.redis.get(attempt_key)
             
             if attempt_data:
                 attempts = json.loads(attempt_data)
@@ -554,7 +554,7 @@ class UltraSecureAuthService:
                 }
             
             # Store with TTL
-            await self.redis.setex(
+            self.redis.setex(
                 attempt_key,
                 7200,  # 2 hours TTL
                 json.dumps(attempts)
@@ -614,7 +614,7 @@ class UltraSecureAuthService:
             'is_active': True,
         }
         
-        await self.redis.setex(
+        self.redis.setex(
             f"session:{session_id}",
             3600,  # 1 hour TTL
             json.dumps(session_data)
@@ -663,7 +663,7 @@ class UltraSecureAuthService:
             if not session_id:
                 return False, None, "invalid_session"
             
-            session_data = await self.redis.get(f"session:{session_id}")
+            session_data = self.redis.get(f"session:{session_id}")
             if not session_data:
                 return False, None, "session_expired"
             
@@ -676,7 +676,7 @@ class UltraSecureAuthService:
             
             # Update last activity
             session['last_activity'] = time.time()
-            await self.redis.setex(
+            self.redis.setex(
                 f"session:{session_id}",
                 3600,
                 json.dumps(session)
@@ -704,7 +704,7 @@ class UltraSecureAuthService:
         
         # Remove session if provided
         if session_id:
-            await self.redis.delete(f"session:{session_id}")
+            self.redis.delete(f"session:{session_id}")
     
     async def _get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         """Get user by username - should be O(1) with proper DB indexing"""
@@ -713,7 +713,7 @@ class UltraSecureAuthService:
         cache_key = f"user:{username}"
         
         try:
-            user_data = await self.redis.get(cache_key)
+            user_data = self.redis.get(cache_key)
             if user_data:
                 return json.loads(user_data)
         except Exception:
@@ -887,13 +887,13 @@ class UltraSecurityMiddleware:
             }
             
             # Store in Redis for real-time monitoring
-            await self.redis.lpush(
+            self.redis.lpush(
                 'security_metrics',
                 json.dumps(metrics)
             )
             
             # Keep only last 10000 entries
-            await self.redis.ltrim('security_metrics', 0, 9999)
+            self.redis.ltrim('security_metrics', 0, 9999)
             
         except Exception as e:
             logger.error(f"Failed to log security metrics: {e}")

@@ -17,7 +17,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import httpx
-import redis.asyncio as redis
+import redis
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
         # Initialize Redis connection
         redis_url = os.getenv('REDIS_URL', 'redis://redis:6379')
         redis_client = redis.from_url(redis_url, decode_responses=True)
-        await redis_client.ping()
+        redis_client.ping()
         logger.info("✅ Redis connection established")
         
         logger.info("✅ API Gateway started successfully")
@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     logger.info("🔄 Shutting down API Gateway...")
     try:
         if redis_client:
-            await redis_client.close()
+            redis_client.close()
             logger.info("✅ Redis connection closed")
     except Exception as e:
         logger.error(f"❌ Shutdown error: {e}")
@@ -221,7 +221,7 @@ async def get_cached_response(cache_key: str) -> Optional[Dict]:
         return None
     
     try:
-        cached = await redis_client.get(cache_key)
+        cached = redis_client.get(cache_key)
         if cached:
             return json.loads(cached)
     except Exception as e:
@@ -235,7 +235,7 @@ async def set_cached_response(cache_key: str, data: Dict, ttl: int = 300):
         return
     
     try:
-        await redis_client.setex(cache_key, ttl, json.dumps(data))
+        redis_client.setex(cache_key, ttl, json.dumps(data))
     except Exception as e:
         logger.warning(f"Cache set error: {e}")
 

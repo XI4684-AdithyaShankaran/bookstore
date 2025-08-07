@@ -19,7 +19,7 @@ spec:
         - name: backend
           image: us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bookstore-backend:latest
           ports:
-            - containerPort: 8000
+            - containerPort: 8080
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -31,9 +31,29 @@ spec:
                 secretKeyRef:
                   name: db-secret
                   key: SECRET_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: GEMINI_API_KEY
+            - name: GCP_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: GCP_PROJECT_ID
+            - name: GCP_LOCATION
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: GCP_LOCATION
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/secrets/service-account.json"
           volumeMounts:
             - name: logs
               mountPath: /logs
+            - name: gcp-service-account
+              mountPath: /secrets
+              readOnly: true
           resources:
             limits:
               cpu: "100m"
@@ -43,16 +63,19 @@ spec:
               memory: "64Mi"
           readinessProbe:
             httpGet:
-              path: /docs
-              port: 8000
+              path: /health
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /docs
-              port: 8000
+              path: /health
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
       volumes:
         - name: logs
           emptyDir: {}
+        - name: gcp-service-account
+          secret:
+            secretName: gcp-service-account

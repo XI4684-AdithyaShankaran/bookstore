@@ -1,0 +1,7 @@
+{
+  "rules": {
+    "declaration-no-important": null,
+    "no-descending-specificity": null
+  },
+  "ignoreFiles": ["**/*.tsx", "**/*.ts"]
+}

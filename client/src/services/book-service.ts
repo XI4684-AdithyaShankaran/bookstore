@@ -20,24 +20,7 @@ interface Book {
   publisher?: string;
 }
 
-interface RecommendationRequest {
-  user_id?: number;
-  book_id?: number;
-  bookshelf_id?: number;
-  cart_items?: number[];
-  wishlist_items?: number[];
-  limit?: number;
-  context?: 'wishlist' | 'bookshelf' | 'cart' | 'book' | 'trending';
-}
 
-interface RecommendationResponse {
-  success: boolean;
-  data: Book[];
-  error?: string;
-  service: string;
-  endpoint: string;
-  response_time: number;
-}
 
 interface SearchResponse {
   books: Book[];
@@ -218,24 +201,7 @@ class BookService {
     return response.data;
   }
 
-  // Recommendation methods
-  async getRecommendations(request: RecommendationRequest): Promise<Book[]> {
-    const response = await this.request<Book[]>('/api/recommendations', {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
-    return response.data;
-  }
 
-  async getWishlistRecommendations(userId: number, limit: number = 5): Promise<Book[]> {
-    const response = await this.request<Book[]>(`/api/recommendations/wishlist?user_id=${userId}&limit=${limit}`);
-    return response.data;
-  }
-
-  async getTrendingRecommendations(limit: number = 10): Promise<Book[]> {
-    const response = await this.request<Book[]>(`/api/recommendations/trending?limit=${limit}`);
-    return response.data;
-  }
 
   // Cart methods
   async getCart(): Promise<CartItem[]> {
@@ -410,8 +376,6 @@ export const bookService = new BookService();
 // Export types for use in components
 export type {
   Book,
-  RecommendationRequest,
-  RecommendationResponse,
   SearchResponse,
   CartItem,
   WishlistItem,

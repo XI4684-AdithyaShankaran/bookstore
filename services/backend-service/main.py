@@ -21,7 +21,7 @@ import uvicorn
 from sqlalchemy import create_engine, text, Index, or_
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 from sqlalchemy.pool import QueuePool
-import redis.asyncio as aioredis
+import redis as aioredis
 import redis
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address

@@ -15,6 +15,37 @@ export const authOptions = {
         strategy: "jwt",
         maxAge: 30 * 24 * 60 * 60, // 30 days
     },
+    // Secure cookie configuration
+    cookies: {
+        sessionToken: {
+            name: `next-auth.session-token`,
+            options: {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 30 * 24 * 60 * 60 // 30 days
+            }
+        },
+        callbackUrl: {
+            name: `next-auth.callback-url`,
+            options: {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/'
+            }
+        },
+        csrfToken: {
+            name: `next-auth.csrf-token`,
+            options: {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/'
+            }
+        }
+    },
     callbacks: {
         async jwt({ token, user, account }: any) {
             if (account && user) {

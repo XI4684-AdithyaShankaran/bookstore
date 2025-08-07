@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import or_, and_, func, Index, text
 from typing import List, Optional, Dict, Any
-from ..models.book import Book
+from ..database.models import Book
 from ..schemas.book import BookCreate
 import logging
 import time
@@ -50,7 +50,7 @@ class BookService:
             # Build query with essential columns
             query = self.db.query(Book).options(load_only(
                 Book.id, Book.title, Book.author, Book.genre, 
-                Book.rating, Book.price, Book.cover_image
+                Book.rating, Book.price, Book.image_url
             ))
             
             # Filtering with conditions

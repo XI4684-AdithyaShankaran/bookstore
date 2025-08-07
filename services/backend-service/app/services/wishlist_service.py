@@ -15,14 +15,33 @@ class WishlistService:
     def __init__(self, db: Session):
         self.db = db
     
-    async def get_user_wishlist(self, user_id: int) -> Dict[str, Any]:
-        """Get user's wishlist"""
+    async def get_user_wishlist(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get user's wishlist with full book details"""
         try:
-            items = self.db.query(WishlistItem).filter(WishlistItem.user_id == user_id).all()
-            return {
-                "items": [{"book_id": item.book_id, "added_at": item.added_at} for item in items],
-                "item_count": len(items)
-            }
+            items = self.db.query(WishlistItem).join(Book).filter(WishlistItem.user_id == user_id).all()
+            return [{
+                "id": item.id,
+                "book_id": item.book_id,
+                "added_at": item.added_at,
+                "book": {
+                    "id": item.book.id,
+                    "title": item.book.title,
+                    "author": item.book.author,
+                    "description": item.book.description,
+                    "price": item.book.price,
+                    "rating": item.book.rating,
+                    "pages": item.book.pages,
+                    "year": item.book.year,
+                    "language": item.book.language,
+                    "isbn": item.book.isbn,
+                    "isbn13": item.book.isbn13,
+                    "ratings_count": item.book.ratings_count,
+                    "text_reviews_count": item.book.text_reviews_count,
+                    "image_url": item.book.image_url,
+                    "genre": item.book.genre,
+                    "publisher": item.book.publisher,
+                }
+            } for item in items]
         except Exception as e:
             logger.error(f"❌ Error getting user wishlist: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error fetching wishlist")

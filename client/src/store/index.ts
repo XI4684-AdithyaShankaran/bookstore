@@ -4,7 +4,6 @@ import { bookApi } from './api/bookApi';
 import { authApi } from './api/authApi';
 import { cartApi } from './api/cartApi';
 import { wishlistApi } from './api/wishlistApi';
-import { recommendationApi } from './api/recommendationApi';
 import authReducer from './slices/authSlice';
 import cartReducer from './slices/cartSlice';
 import wishlistReducer from './slices/wishlistSlice';
@@ -20,7 +19,6 @@ export const store = configureStore({
     [authApi.reducerPath]: authApi.reducer,
     [cartApi.reducerPath]: cartApi.reducer,
     [wishlistApi.reducerPath]: wishlistApi.reducer,
-    [recommendationApi.reducerPath]: recommendationApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -31,8 +29,7 @@ export const store = configureStore({
       bookApi.middleware,
       authApi.middleware,
       cartApi.middleware,
-      wishlistApi.middleware,
-      recommendationApi.middleware
+      wishlistApi.middleware
     ),
   devTools: process.env.NODE_ENV !== 'production',
 });

@@ -10,16 +10,13 @@ import json
 import logging
 from typing import Optional, Dict, Any, Tuple
 from fastapi import FastAPI, Request, Response, HTTPException, status, Depends
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import redis.asyncio as redis
+import redis
 
 from .security_validator import (
-    UltraSecurityMiddleware,
-    UltraSecureAuthService,
-    UltraSecureCORS,
-    UltraSecureValidator,
+    SecurityValidator,
     TokenBucketRateLimiter,
     GeolocationSecurityFilter
 )
@@ -70,8 +67,8 @@ class SecurityConfig:
 # ADVANCED AUTHENTICATION MIDDLEWARE
 # =====================================================
 
-class AdvancedAuthMiddleware(BaseHTTPMiddleware):
-    """Ultra-fast authentication middleware with O(1) token validation"""
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """JWT authentication middleware with token validation"""
     
     def __init__(self, app: FastAPI, redis_client: redis.Redis, secret_key: str):
         super().__init__(app)
@@ -221,8 +218,8 @@ class AdvancedAuthMiddleware(BaseHTTPMiddleware):
 # ADVANCED RATE LIMITING MIDDLEWARE
 # =====================================================
 
-class AdvancedRateLimitMiddleware(BaseHTTPMiddleware):
-    """Ultra-advanced rate limiting with multiple algorithms"""
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting middleware with sliding window algorithms"""
     
     def __init__(self, app: FastAPI, redis_client: redis.Redis):
         super().__init__(app)
@@ -304,26 +301,26 @@ class AdvancedRateLimitMiddleware(BaseHTTPMiddleware):
             max_requests = 10
             
             # Remove old entries outside the window
-            await self.redis.zremrangebyscore(
+            self.redis.zremrangebyscore(
                 window_key, 
                 0, 
                 current_time - window_size
             )
             
             # Count current requests in window
-            current_count = await self.redis.zcard(window_key)
+            current_count = self.redis.zcard(window_key)
             
             if current_count >= max_requests:
                 return False
             
             # Add current request
-            await self.redis.zadd(
+            self.redis.zadd(
                 window_key, 
                 {str(current_time): current_time}
             )
             
             # Set expiry
-            await self.redis.expire(window_key, window_size)
+            self.redis.expire(window_key, window_size)
             
             return True
             
@@ -356,11 +353,11 @@ class AdvancedRateLimitMiddleware(BaseHTTPMiddleware):
 # =====================================================
 
 class RequestValidationMiddleware(BaseHTTPMiddleware):
-    """Ultra-fast request validation with competitive programming optimizations"""
+    """Request validation middleware with security checks"""
     
     def __init__(self, app: FastAPI):
         super().__init__(app)
-        self.validator = UltraSecureValidator()
+        self.validator = SecurityValidator()
         self.config = SecurityConfig()
         
         # Content type validation cache
@@ -468,11 +465,10 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
 # =====================================================
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Add comprehensive security headers - O(1)"""
+    """Security headers middleware for HTTP security"""
     
     def __init__(self, app: FastAPI):
         super().__init__(app)
-        self.cors_handler = UltraSecureCORS()
         
         # Security headers with environment-aware values
         self.headers = {
@@ -501,10 +497,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         for header, value in self.headers.items():
             response.headers[header] = value
         
-        # Add CORS headers if needed
-        cors_headers = self.cors_handler.get_cors_headers(request)
-        for header, value in cors_headers.items():
-            response.headers[header] = value
+        # CORS headers are handled by FastAPI's CORSMiddleware
         
         # Add custom security headers
         response.headers['X-API-Version'] = '1.0'
@@ -535,34 +528,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # =====================================================
 
 def setup_security_middleware(app: FastAPI, redis_client: redis.Redis, secret_key: str):
-    """Setup all security middleware with optimal ordering - O(1)"""
+    """Setup basic security middleware for production use"""
     
-    # Order matters for performance and security
-    
-    # 1. CORS (must be first for preflight requests)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:3000", "https://bookstore.yourdomain.com"],
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-        max_age=86400,  # 24 hours
-    )
-    
-    # 2. Security headers (early to ensure all responses get headers)
+    # Only add essential security headers for now
     app.add_middleware(SecurityHeadersMiddleware)
-    
-    # 3. Rate limiting (before expensive operations)
-    app.add_middleware(AdvancedRateLimitMiddleware, redis_client)
-    
-    # 4. Request validation (validate before processing)
-    app.add_middleware(RequestValidationMiddleware)
-    
-    # 5. Authentication (after validation, before business logic)
-    app.add_middleware(AdvancedAuthMiddleware, redis_client, secret_key)
-    
-    # 6. General security middleware (comprehensive checks)
-    app.add_middleware(UltraSecurityMiddleware, redis_client)
     
     logger.info("✅ Security middleware configured successfully")
 
