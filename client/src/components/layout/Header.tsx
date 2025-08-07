@@ -15,6 +15,7 @@ import {
   Settings
 } from 'lucide-react';
 
+
 export default function Header() {
   const { data: session } = useSession();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -38,7 +39,7 @@ export default function Header() {
             <div className="w-10 h-10 bg-gradient-to-r from-amber-800 to-yellow-800 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform shadow-md">
               <BookOpen className="w-6 h-6 text-white" />
             </div>
-            <span className="text-2xl font-bold text-amber-900 gradient-text">Bkmrk'd</span>
+            <span className="text-2xl font-bold text-amber-900 gradient-text">Bkmrk&apos;d</span>
           </Link>
 
           {/* Search Bar */}

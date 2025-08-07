@@ -65,7 +65,7 @@ export const useSearchStream = (options: UseSearchStreamOptions = {}): UseSearch
   } = options;
 
   const buildSearchUrl = useCallback((query: string) => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const params = new URLSearchParams();
     
     params.append('q', query);

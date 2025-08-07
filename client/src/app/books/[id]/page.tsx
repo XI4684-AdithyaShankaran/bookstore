@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
     ArrowLeft,
     Heart,
@@ -39,13 +40,7 @@ export default function BookDetailPage() {
     const [isWishlisted, setIsWishlisted] = useState(false);
     const [isInCart, setIsInCart] = useState(false);
 
-    useEffect(() => {
-        if (bookId) {
-            loadBook();
-        }
-    }, [bookId]);
-
-    const loadBook = async () => {
+    const loadBook = useCallback(async () => {
         try {
             setLoading(true);
             logger.info('API', `Loading book details for ID: ${bookId}`);
@@ -65,7 +60,13 @@ export default function BookDetailPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [bookId]);
+
+    useEffect(() => {
+        if (bookId) {
+            loadBook();
+        }
+    }, [bookId, loadBook]);
 
     const handleAddToWishlist = () => {
         setIsWishlisted(!isWishlisted);
@@ -129,10 +130,12 @@ export default function BookDetailPage() {
                         {/* Book Image */}
                         <div className="relative">
                             <div className="aspect-[3/4] rounded-xl overflow-hidden bg-gradient-to-br from-amber-100 to-yellow-100 shadow-lg">
-                                <img
+                                <Image
                                     src={book.image_url || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=600'}
                                     alt={book.title}
-                                    className="w-full h-full object-cover"
+                                    fill
+                                    className="object-cover"
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                 />
                             </div>
                         </div>
@@ -250,13 +253,23 @@ function RecommendationsSection({ bookId }: { bookId: number }) {
     useEffect(() => {
         const fetchRecommendations = async () => {
             try {
-                const response = await api.post('/api/recommendations', {
-                    book_id: bookId,
-                    limit: 4
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/recommendations`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        book_id: bookId,
+                        limit: 4
+                    })
                 });
-                setRecommendations(response.data.recommendations || []);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setRecommendations(data.recommendations || []);
+                }
             } catch (error) {
-                logger.error('Recommendations', 'Failed to fetch recommendations', error);
+                logger.error('Recommendations', 'Failed to fetch recommendations', error as Error);
             } finally {
                 setLoading(false);
             }
@@ -297,10 +310,12 @@ function RecommendationsSection({ bookId }: { bookId: number }) {
                     className="group block bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden"
                 >
                     <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
-                        <img
+                        <Image
                             src={recBook.image_url || '/placeholder-book.jpg'}
                             alt={recBook.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            fill
+                            className="object-cover group-hover:scale-105 transition-transform duration-300"
+                            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
                         />
                     </div>
                     <div className="p-4">

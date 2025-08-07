@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { logger, logNavigation, logPerformance } from '@/utils/logger';
 import LogsViewer from '@/components/debug/LogsViewer';
-import StreamingBookGrid from '@/components/books/StreamingBookGrid';
+import BookGrid from '@/components/books/BookGrid';
 
 interface Book {
   id: number;
@@ -31,7 +31,7 @@ export default function Home() {
   return (
     <>
       {/* Streaming Book Grid with auto-start */}
-      <StreamingBookGrid autoStart={true} />
+      <BookGrid autoStart={true} />
 
       {/* Debug Logs Button */}
       <button

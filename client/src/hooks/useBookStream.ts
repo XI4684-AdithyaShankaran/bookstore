@@ -49,7 +49,7 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
-  
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -63,15 +63,15 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
   } = options;
 
   const buildStreamUrl = useCallback(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const params = new URLSearchParams();
-    
+
     if (search) params.append('search', search);
     if (genre) params.append('genre', genre);
     if (author) params.append('author', author);
     params.append('batch_size', batchSize.toString());
     params.append('delay', delay.toString());
-    
+
     return `${baseUrl}/api/books/stream?${params.toString()}`;
   }, [search, genre, author, batchSize, delay]);
 
@@ -89,62 +89,62 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
 
   const startStream = useCallback(() => {
     if (loading) return;
-    
+
     stopStream(); // Clean up any existing stream
     setError(null);
     setLoading(true);
     setIsComplete(false);
-    
+
     logger.info('BookStream', 'Starting book stream', { search, genre, author });
-    
+
     try {
       abortControllerRef.current = new AbortController();
       const url = buildStreamUrl();
-      
+
       eventSourceRef.current = new EventSource(url);
-      
+
       eventSourceRef.current.onopen = () => {
         logger.info('BookStream', 'Stream connection opened');
       };
-      
+
       eventSourceRef.current.onmessage = (event) => {
         try {
           const streamEvent: StreamEvent = JSON.parse(event.data);
-          
+
           switch (streamEvent.type) {
             case 'start':
               logger.info('BookStream', 'Stream started', { message: streamEvent.message });
               setBooks([]);
               setProgress(0);
               break;
-              
+
             case 'book':
               if (streamEvent.data) {
                 setBooks(prev => [...prev, streamEvent.data!]);
-                logger.debug('BookStream', 'Book received', { 
+                logger.debug('BookStream', 'Book received', {
                   title: streamEvent.data.title,
-                  index: streamEvent.index 
+                  index: streamEvent.index
                 });
               }
               break;
-              
+
             case 'progress':
               if (streamEvent.count !== undefined) {
                 setProgress(streamEvent.count);
                 logger.info('BookStream', 'Progress update', { count: streamEvent.count });
               }
               break;
-              
+
             case 'end':
               setIsComplete(true);
               setLoading(false);
-              logger.info('BookStream', 'Stream completed', { 
+              logger.info('BookStream', 'Stream completed', {
                 total: streamEvent.total,
-                message: streamEvent.message 
+                message: streamEvent.message
               });
               stopStream();
               break;
-              
+
             case 'error':
               setError(streamEvent.message || 'Stream error occurred');
               setLoading(false);
@@ -156,20 +156,20 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
           logger.error('BookStream', 'Failed to parse stream event', parseError as Error);
         }
       };
-      
+
       eventSourceRef.current.onerror = (event) => {
         logger.error('BookStream', 'Stream connection error', new Error('EventSource error'));
         setError('Connection lost. Please try again.');
         setLoading(false);
         stopStream();
       };
-      
+
     } catch (err) {
       logger.error('BookStream', 'Failed to start stream', err as Error);
       setError('Failed to start book stream');
       setLoading(false);
     }
-  }, [loading, buildStreamUrl, search, genre, author, stopStream]);
+  }, [buildStreamUrl, search, genre, author, stopStream, loading]);
 
   const resetStream = useCallback(() => {
     stopStream();
@@ -186,7 +186,7 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
       const timer = setTimeout(() => {
         startStream();
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
   }, [autoStart, startStream]);
@@ -204,7 +204,7 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
       resetStream();
       startStream();
     }
-  }, [search, genre, author]); // Don't include startStream and resetStream to avoid infinite loops
+  }, [search, genre, author, loading, resetStream, startStream]); // Include all dependencies
 
   return {
     books,

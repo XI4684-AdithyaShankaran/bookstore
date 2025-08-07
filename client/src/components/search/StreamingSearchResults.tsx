@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useSearchStream } from '@/hooks/useSearchStream';
 import { logger, logUserAction } from '@/utils/logger';
 import { Search, Filter, X, Zap, Clock, Star } from 'lucide-react';
+import Image from 'next/image';
 
 interface Book {
     id: number;
@@ -116,7 +117,7 @@ export default function StreamingSearchResults({
                 {isComplete && results.length > 0 && (
                     <div className="flex items-center space-x-2 text-sm text-green-600">
                         <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span>Found {results.length} results for "{currentQuery}"</span>
+                        <span>Found {results.length} results for &quot;{currentQuery}&quot;</span>
                     </div>
                 )}
             </div>
@@ -221,12 +222,12 @@ export default function StreamingSearchResults({
             <div className="book-card relative overflow-hidden">
                 {/* Book Image */}
                 <div className="relative overflow-hidden rounded-t-xl">
-                    <img
+                    <Image
                         src={book.image_url || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&q=80'}
                         alt={book.title}
-                        className="w-full h-auto object-cover book-image transition-all duration-500 group-hover:scale-110"
-                        loading="lazy"
-                        decoding="async"
+                        fill
+                        className="object-cover book-image transition-all duration-500 group-hover:scale-110"
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                         onError={(e) => {
                             e.currentTarget.src = 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&q=80';
                         }}
@@ -323,7 +324,7 @@ export default function StreamingSearchResults({
                                 No results found
                             </h3>
                             <p className="text-gray-600 mb-4">
-                                No books found for "{currentQuery}". Try a different search term.
+                                No books found for &quot;{currentQuery}&quot;. Try a different search term.
                             </p>
                             <button
                                 onClick={() => {

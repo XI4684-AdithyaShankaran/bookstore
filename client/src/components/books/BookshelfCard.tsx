@@ -1,6 +1,4 @@
 "use client";
-/* eslint-disable react/forbid-dom-props, @typescript-eslint/ban-ts-comment */
-// @ts-nocheck
 
 import { useState } from 'react';
 import { Book } from '@/services/book-service';
@@ -78,10 +76,12 @@ export default function BookshelfCard({
                                         {...divProps}
                                     >
                                         <div className="relative w-16 h-20 md:w-20 md:h-24">
-                                            <img
+                                            <Image
                                                 src={book.image_url || '/placeholder-book.jpg'}
                                                 alt={book.title}
-                                                className="w-full h-32 object-cover rounded"
+                                                fill
+                                                className="object-cover rounded"
+                                                sizes="(max-width: 768px) 64px, 80px"
                                             />
                                             {/* Book title overlay on hover */}
                                             {isHovered && (

@@ -12,7 +12,7 @@ export interface WishlistItem {
 export const wishlistApi = createApi({
   reducerPath: 'wishlistApi',
   baseQuery: fetchBaseQuery({
-    baseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001',
+    baseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
     prepareHeaders: (headers, { getState }) => {
       const token = localStorage.getItem('auth_token');
       if (token) {

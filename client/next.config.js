@@ -142,6 +142,10 @@ const nextConfig = {
     // Enable ESLint during build
     ignoreDuringBuilds: false,
   },
+  typescript: {
+    // Enable TypeScript type checking during build
+    ignoreBuildErrors: false,
+  },
 
   // Optimize static generation
   trailingSlash: false,

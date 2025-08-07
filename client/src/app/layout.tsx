@@ -8,7 +8,7 @@ import ServiceWorkerProvider from '@/components/ServiceWorkerProvider'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Bkmrk\'d - Bookstore',
+  title: 'Bkmrk&apos;d - Bookstore',
   description: 'Discover your next favorite book',
 }
 

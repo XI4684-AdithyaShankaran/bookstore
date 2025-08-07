@@ -62,10 +62,12 @@ export default function Carousel({ books, title, autoPlay = true, interval = 500
                                     <div className="flex flex-col md:flex-row items-center max-w-4xl mx-auto px-8">
                                         {/* Book Cover */}
                                         <div className="relative w-48 h-64 md:w-64 md:h-80 mb-6 md:mb-0 md:mr-12">
-                                            <img
+                                            <Image
                                                 src={book.image_url || '/placeholder-book.jpg'}
                                                 alt={book.title}
-                                                className="w-full h-64 object-cover rounded-lg shadow-lg"
+                                                fill
+                                                className="object-cover rounded-lg shadow-lg"
+                                                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                             />
                                         </div>
 

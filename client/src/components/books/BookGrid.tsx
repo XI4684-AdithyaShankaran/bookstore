@@ -1,95 +1,238 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useGetBooksQuery } from '@/store/api/bookApi';
+import React, { useEffect, useMemo, useCallback } from 'react';
+import { useBookStream } from '@/hooks/useBookStream';
 import BookCard from './BookCard';
+import Grid from '@/components/ui/Grid';
+import LoadingIndicator from '@/components/ui/LoadingIndicator';
+import ProgressBar from '@/components/ui/ProgressBar';
+import { logger } from '@/utils/logger';
 
-const BATCH_SIZE = 10;
+// Define the Book type that matches what BookCard expects
+interface Book {
+    id: number;
+    title: string;
+    author: string;
+    genre?: string;
+    rating?: number;
+    price?: number;
+    image_url?: string;
+    description?: string;
+    pages?: number;
+    year?: number;
+    language?: string;
+    isbn?: string;
+}
 
-const BookGrid = () => {
-  const [page, setPage] = useState(0);
-  const [allBooks, setAllBooks] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+interface BookGridProps {
+    search?: string;
+    genre?: string;
+    author?: string;
+    batchSize?: number;
+    delay?: number;
+    autoStart?: boolean;
+    loadingType?: 'stream' | 'infinite' | 'static';
+}
 
-  const { data: books = [], isLoading: isInitialLoading, error } = useGetBooksQuery({
-    skip: page * BATCH_SIZE,
-    limit: BATCH_SIZE
-  });
+// Memoized book card component for better performance
+const MemoizedBookCard = React.memo(BookCard);
 
-  useEffect(() => {
-    if (books.length > 0) {
-      setAllBooks(prev => {
-        const newBooks = [...prev];
-        books.forEach(book => {
-          if (!newBooks.find(b => b.id === book.id)) {
-            newBooks.push(book);
-          }
-        });
-        return newBooks;
-      });
-      setHasMore(books.length === BATCH_SIZE);
+export default function BookGrid({
+    search,
+    genre,
+    author,
+    batchSize = 5,
+    delay = 0.1,
+    autoStart = false,
+    loadingType = 'stream'
+}: BookGridProps) {
+    const {
+        books,
+        loading,
+        error,
+        progress,
+        isComplete,
+        startStream,
+        stopStream,
+        resetStream
+    } = useBookStream({
+        search,
+        genre,
+        author,
+        batchSize,
+        delay,
+        autoStart
+    });
+
+    // Memoized start stream function to prevent unnecessary re-renders
+    const handleStartStream = useCallback(() => {
+        logger.info('BookGrid', 'Starting book stream', { search, genre, author });
+        startStream();
+    }, [startStream, search, genre, author]);
+
+    // Memoized stop stream function
+    const handleStopStream = useCallback(() => {
+        logger.info('BookGrid', 'Stopping book stream');
+        stopStream();
+    }, [stopStream]);
+
+    // Memoized reset stream function
+    const handleResetStream = useCallback(() => {
+        logger.info('BookGrid', 'Resetting book stream');
+        resetStream();
+    }, [resetStream]);
+
+    useEffect(() => {
+        if (autoStart) {
+            handleStartStream();
+        }
+
+        return () => {
+            handleStopStream();
+        };
+    }, [autoStart, handleStartStream, handleStopStream]);
+
+    useEffect(() => {
+        if (isComplete) {
+            logger.info('BookGrid', 'Stream completed', {
+                totalBooks: books.length,
+                progress: `${progress}%`
+            });
+        }
+    }, [isComplete, books.length, progress]);
+
+    // Memoized book grid items
+    const bookGridItems = useMemo(() => {
+        return books.map((book, index) => (
+            <div key={`${book.id}-${index}`} className="break-inside-avoid mb-4">
+                <MemoizedBookCard book={book as any} />
+            </div>
+        ));
+    }, [books]);
+
+    // Memoized progress bar
+    const progressBar = useMemo(() => {
+        if (!loading || loadingType !== 'stream') return null;
+
+        return (
+            <ProgressBar
+                progress={progress}
+                text="Loading books"
+                showPercentage={true}
+                showCount={true}
+                count={books.length}
+            />
+        );
+    }, [loading, progress, books.length, loadingType]);
+
+    // Memoized loading indicator
+    const loadingIndicator = useMemo(() => {
+        if (!loading) return null;
+
+        const loadingText = loadingType === 'stream' ? 'Loading books...' : 'Loading more books...';
+
+        return <LoadingIndicator text={loadingText} />;
+    }, [loading, loadingType]);
+
+    // Memoized completion message
+    const completionMessage = useMemo(() => {
+        if (!isComplete || books.length === 0) return null;
+
+        return (
+            <div className="text-center py-8">
+                <div className="text-green-600 font-semibold mb-2">
+                    ✓ All books loaded successfully!
+                </div>
+                <div className="text-gray-600">
+                    {books.length} books found
+                </div>
+            </div>
+        );
+    }, [isComplete, books.length]);
+
+    // Memoized empty state
+    const emptyState = useMemo(() => {
+        if (!isComplete || books.length > 0) return null;
+
+        return (
+            <div className="flex flex-col items-center justify-center py-12">
+                <div className="text-gray-600 text-lg mb-4">
+                    No books found
+                </div>
+                <button
+                    onClick={handleResetStream}
+                    className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                >
+                    Refresh
+                </button>
+            </div>
+        );
+    }, [isComplete, books.length, handleResetStream]);
+
+    // Memoized manual controls
+    const manualControls = useMemo(() => {
+        if (autoStart || loadingType !== 'stream') return null;
+
+        return (
+            <div className="flex justify-center gap-4 mt-8">
+                <button
+                    onClick={handleStartStream}
+                    disabled={loading}
+                    className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                    {loading ? 'Loading...' : 'Start Stream'}
+                </button>
+                {loading && (
+                    <button
+                        onClick={handleStopStream}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                        Stop Stream
+                    </button>
+                )}
+            </div>
+        );
+    }, [autoStart, loading, loadingType, handleStartStream, handleStopStream]);
+
+    // Error state
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center py-12">
+                <div className="text-red-600 text-lg font-semibold mb-4">
+                    Error loading books
+                </div>
+                <div className="text-gray-600 mb-4">{error}</div>
+                <button
+                    onClick={handleStartStream}
+                    className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                >
+                    Try Again
+                </button>
+            </div>
+        );
     }
-  }, [books]);
 
-  const loadMoreBooks = () => {
-    if (isLoading || !hasMore) return;
-    setIsLoading(true);
-    setPage(prev => prev + 1);
-    setIsLoading(false);
-  };
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const { scrollTop, clientHeight, scrollHeight } = document.documentElement;
-      if (scrollTop + clientHeight >= scrollHeight - 50 && !isLoading && hasMore) {
-        loadMoreBooks();
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isLoading, hasMore]);
-
-  if (isInitialLoading) {
     return (
-      <div className="flex justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
-        <span className="ml-2 text-gray-600">Loading books...</span>
-      </div>
-    );
-  }
+        <div className="w-full">
+            {/* Progress Bar */}
+            {progressBar}
 
-  if (error) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-red-500">Failed to load books. Please try again.</p>
-      </div>
-    );
-  }
+            {/* Book Grid */}
+            <Grid>
+                {bookGridItems}
+            </Grid>
 
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="columns-2 md:columns-3 lg:columns-4 gap-4">
-        {allBooks.map((book) => (
-          <BookCard key={book.id} book={book} />
-        ))}
-      </div>
-      {isLoading && (
-        <div className="flex justify-center py-4">
-          <div className="flex items-center space-x-2">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600"></div>
-            <span className="text-gray-600">Loading more books...</span>
-          </div>
+            {/* Loading Indicator */}
+            {loadingIndicator}
+
+            {/* Completion Message */}
+            {completionMessage}
+
+            {/* Empty State */}
+            {emptyState}
+
+            {/* Manual Controls */}
+            {manualControls}
         </div>
-      )}
-      {!hasMore && allBooks.length > 0 && (
-        <div className="flex justify-center py-4 text-gray-500">
-          <p>No more books to load.</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default BookGrid;
+    );
+} 

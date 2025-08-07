@@ -15,7 +15,9 @@ class SimpleCache {
     // Implement LRU eviction if cache is full
     if (this.cache.size >= this.maxSize) {
       const oldestKey = this.cache.keys().next().value;
-      this.cache.delete(oldestKey);
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
     }
 
     const entry: CacheEntry<T> = {
@@ -77,7 +79,7 @@ class SimpleCache {
       if (entry) this.cache.delete(key);
       return null;
     }
-    
+
     return {
       data: entry.data as T,
       etag: entry.etag,

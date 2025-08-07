@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import BookCard from '@/components/books/BookCard';
 import { useGetCartQuery, useUpdateCartItemMutation, useRemoveFromCartMutation } from '@/store/api/cartApi';
 import type { CartItem } from '@/store/api/cartApi';
+import Image from 'next/image';
 
 export default function CartPage() {
   const { data: cartItems, isLoading, error } = useGetCartQuery();
@@ -187,7 +188,7 @@ function CartRecommendations({ cartItems }: { cartItems: CartItem[] }) {
     const fetchRecommendations = async () => {
       try {
         // Get recommendations based on cart books
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/recommendations`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/recommendations`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -232,10 +233,12 @@ function CartRecommendations({ cartItems }: { cartItems: CartItem[] }) {
       {recommendations.map((book: any, index: number) => (
         <div key={index} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
           <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
-            <img
+            <Image
               src={book.image_url || '/placeholder-book.jpg'}
               alt={book.title}
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+              fill
+              className="object-cover hover:scale-105 transition-transform duration-300"
+              sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
             />
           </div>
           <div className="p-4">

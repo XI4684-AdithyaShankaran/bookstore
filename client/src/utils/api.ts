@@ -1,7 +1,7 @@
 import { logger, logApiRequest, logApiResponse, logApiError } from './logger';
 import { cache } from './cache';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface ApiResponse<T = any> {
   data: T;

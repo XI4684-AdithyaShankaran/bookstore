@@ -72,7 +72,7 @@ export default function SignInPage() {
                                 <BookOpen className="w-8 h-8 text-white" />
                             </div>
                             <h1 className="text-2xl font-bold text-gray-800 mb-2">Welcome Back</h1>
-                            <p className="text-gray-600">Sign in to your Bkmrk'd account</p>
+                            <p className="text-gray-600">Sign in to your Bkmrk&apos;d account</p>
                         </div>
 
                         {/* Error Message */}
@@ -160,7 +160,7 @@ export default function SignInPage() {
                         {/* Sign Up Link */}
                         <div className="text-center mt-6">
                             <p className="text-gray-600">
-                                Don't have an account?{' '}
+                                Don&apos;t have an account?{' '}
                                 <Link href="/auth/signup" className="text-amber-600 hover:text-amber-700 font-medium transition-colors">
                                     Sign up here
                                 </Link>

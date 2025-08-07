@@ -51,7 +51,7 @@ export default function SignUpPage() {
                     <div className="flex justify-center">
                         <div className="flex items-center space-x-2">
                             <BookOpen className="w-8 h-8 text-amber-600" />
-                            <span className="text-2xl font-bold text-gray-900">Bkmrk'd</span>
+                            <span className="text-2xl font-bold text-gray-900">Bkmrk&apos;d</span>
                         </div>
                     </div>
                     <h2 className="mt-6 text-3xl font-bold text-gray-900">

@@ -1,483 +1,171 @@
+version: '3.8'
+
 services:
   # Database Services
   postgres:
     image: postgres:15-alpine
     container_name: bookstore_postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-bookstore_db}
-      POSTGRES_USER: ${POSTGRES_USER:-bookstore_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bookstore_pass}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      - POSTGRES_DB=${POSTGRES_DB:-bookstore_db}
+      - POSTGRES_USER=${POSTGRES_USER:-bookstore_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-bookstore_pass}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./redis/redis.conf:/etc/redis/redis.conf
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bookstore_user}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bookstore_user} -d ${POSTGRES_DB:-bookstore_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "0.5"
-        reservations:
-          memory: 256M
-          cpus: "0.25"
-    command: >
-      postgres
-      -c shared_buffers=256MB
-      -c effective_cache_size=1GB
-      -c maintenance_work_mem=64MB
-      -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
-      -c default_statistics_target=100
-      -c random_page_cost=1.1
-      -c effective_io_concurrency=200
-      -c work_mem=4MB
-      -c min_wal_size=1GB
-      -c max_wal_size=4GB
-      -c max_worker_processes=2
-      -c max_parallel_workers_per_gather=1
-      -c max_parallel_workers=2
-      -c max_parallel_maintenance_workers=1
 
   redis:
     image: redis:7-alpine
     container_name: bookstore_redis
-    ports:
-      - "6379:6379"
+    command: redis-server /etc/redis/redis.conf
     volumes:
       - redis_data:/data
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-bookstore_redis_pass}
-      - REDIS_MAXMEMORY=${REDIS_MAXMEMORY:-512mb}
-      - REDIS_LOG_LEVEL=${REDIS_LOG_LEVEL:-notice}
-    command: >
-      redis-server /usr/local/etc/redis/redis.conf
-      --maxmemory ${REDIS_MAXMEMORY:-512mb}
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
-      --save 60 10000
-      --appendonly yes
-      --appendfsync everysec
-      --dir /data
-      --dbfilename dump.rdb
-      --requirepass ${REDIS_PASSWORD:-bookstore_redis_pass}
-      --protected-mode yes
-      --tcp-backlog 511
-      --maxclients 10000
-      --slowlog-log-slower-than 10000
-      --slowlog-max-len 128
-      --latency-monitor-threshold 100
-      --notify-keyspace-events "AKE"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "redis-cli",
-          "-a",
-          "${REDIS_PASSWORD:-bookstore_redis_pass}",
-          "ping",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.5"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
-    restart: unless-stopped
-    networks:
-      - bookstore_network
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: bookstore_rabbitmq
+      - ./redis/redis.conf:/etc/redis/redis.conf
     ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - "6379:6379"
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "0.5"
-        reservations:
-          memory: 256M
-          cpus: "0.25"
-    restart: unless-stopped
-    networks:
-      - bookstore_network
 
   weaviate:
     image: semitechnologies/weaviate:1.22.4
     container_name: bookstore_weaviate
-    ports:
-      - "8080:8080"
     environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
-      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
-      DEFAULT_VECTORIZER_MODULE: "none"
-      ENABLE_CROSS_ORIGIN: "true"
-      LOG_LEVEL: "info"
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none
+      - ENABLE_MODULES=text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai
+      - CLUSTER_HOSTNAME=node1
     volumes:
       - weaviate_data:/var/lib/weaviate
+    ports:
+      - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "1.0"
-        reservations:
-          memory: 512M
-          cpus: "0.5"
-
-  # API Gateway (Main Entry Point)
-  api-gateway:
-    build:
-      context: ./services/api-gateway
-      dockerfile: Dockerfile
-    container_name: bookstore_api_gateway
-    ports:
-      - "8000:8000"
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-bookstore_redis_pass}
-      - BACKEND_SERVICE_URL=http://backend-service:8001
-      - RECOMMENDATION_SERVICE_URL=http://recommendation-engine:8002
-      - ML_SERVICE_URL=http://ml-service:8003
-      - OBSERVABILITY_SERVICE_URL=http://observability-service:8004
-      - ETL_SERVICE_URL=http://etl-pipeline:8005
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.5"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
-    restart: unless-stopped
-    networks:
-      - bookstore_network
 
-  # Backend Service (Core API)
+  # ETL Service (Data Loading)
+  etl-service:
+    build:
+      context: ./services/etl-service
+      dockerfile: Dockerfile
+    container_name: bookstore_etl_service
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
+      - KAGGLE_USERNAME=${KAGGLE_USERNAME}
+      - KAGGLE_KEY=${KAGGLE_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - etl
+    restart: "no"
+
+  # Backend Service (Main API)
   backend-service:
     build:
       context: ./services/backend-service
       dockerfile: Dockerfile
     container_name: bookstore_backend_service
     ports:
-      - "8001:8001"
+      - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-bookstore_redis_pass}
-      - REDIS_DB=0
-      - REDIS_MAXMEMORY=${REDIS_MAXMEMORY:-512mb}
-      - REDIS_LOG_LEVEL=${REDIS_LOG_LEVEL:-notice}
-      - WEAVIATE_URL=http://weaviate:8080
-      - SECRET_KEY=${SECRET_KEY}
-      - ALGORITHM=${ALGORITHM:-HS256}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      - CACHE_TTL=${CACHE_TTL:-3600}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
-      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
-      - MAX_REQUESTS_PER_MINUTE=${MAX_REQUESTS_PER_MINUTE:-1000}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_ENABLE_COMPRESSION=${REDIS_ENABLE_COMPRESSION:-true}
-      - REDIS_ENABLE_SERIALIZATION=${REDIS_ENABLE_SERIALIZATION:-true}
-      - REDIS_COMPRESSION_THRESHOLD=${REDIS_COMPRESSION_THRESHOLD:-1024}
-      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
-      - REDIS_CONNECTION_TIMEOUT=${REDIS_CONNECTION_TIMEOUT:-5}
-      - REDIS_SOCKET_TIMEOUT=${REDIS_SOCKET_TIMEOUT:-5}
-      - REDIS_HEALTH_CHECK_INTERVAL=${REDIS_HEALTH_CHECK_INTERVAL:-30}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "1.0"
-        reservations:
-          memory: 512M
-          cpus: "0.5"
-    restart: unless-stopped
-    networks:
-      - bookstore_network
-
-  # ML Service (AI/ML Processing)
-  ml-service:
-    build:
-      context: ./services/ml-service
-      dockerfile: Dockerfile
-    container_name: bookstore_ml_service
-    ports:
-      - "8003:8003"
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-bookstore_redis_pass}@redis:6379/0
       - WEAVIATE_URL=http://weaviate:8080
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - CACHE_TTL=${CACHE_TTL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # AI Service (ML/Recommendations)
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    container_name: bookstore_ai_service
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-bookstore_redis_pass}@redis:6379/0
+      - WEAVIATE_URL=http://weaviate:8080
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - CACHE_TTL=${CACHE_TTL:-3600}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.5"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
-    restart: unless-stopped
 
-  # Recommendation Engine (Dedicated Microservice)
-  recommendation-engine:
-    build:
-      context: ./services/recommendation-engine
-      dockerfile: Dockerfile
-    container_name: bookstore_recommendation_engine
-    ports:
-      - "8002:8002"
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - REDIS_URL=redis://redis:6379
-      - ML_SERVICE_URL=http://ml-service:8003
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ml-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.5"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
-    restart: unless-stopped
-
-  # Observability Service (Analytics & Monitoring)
-  observability-service:
-    build:
-      context: ./services/observability-service
-      dockerfile: Dockerfile
-    container_name: bookstore_observability_service
-    ports:
-      - "8004:8004"
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - REDIS_URL=redis://redis:6379
-      - ANALYTICS_ENABLED=${ANALYTICS_ENABLED:-true}
-      - RAGAS_EVALUATION_ENABLED=${RAGAS_EVALUATION_ENABLED:-true}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
-      - ANALYTICS_BATCH_SIZE=${ANALYTICS_BATCH_SIZE:-50}
-      - FAITHFULNESS_THRESHOLD=${FAITHFULNESS_THRESHOLD:-0.7}
-      - RELEVANCY_THRESHOLD=${RELEVANCY_THRESHOLD:-0.6}
-      - RECALL_THRESHOLD=${RECALL_THRESHOLD:-0.5}
-      - DIVERSITY_THRESHOLD=${DIVERSITY_THRESHOLD:-0.3}
-      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.6}
-      - RATING_WEIGHT=${RATING_WEIGHT:-0.6}
-      - PAGES_WEIGHT=${PAGES_WEIGHT:-0.2}
-      - YEAR_WEIGHT=${YEAR_WEIGHT:-0.2}
-      - ANALYTICS_REPORT_DIR=${ANALYTICS_REPORT_DIR:-analytics}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "0.5"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
-    restart: unless-stopped
-
-  # ETL Pipeline (Data Processing)
-  etl-pipeline:
-    build:
-      context: ./services/etl-pipeline
-      dockerfile: Dockerfile
-    container_name: bookstore_etl_pipeline
-    ports:
-      - "8005:8005"
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
-      - KAGGLE_USERNAME=${KAGGLE_USERNAME}
-      - KAGGLE_KEY=${KAGGLE_KEY}
-      - KAGGLE_DATASET_ID=${KAGGLE_DATASET_ID:-jealousleopard/goodreadsbooks}
-      - KAGGLE_DATASET_VERSION=${KAGGLE_DATASET_VERSION:-1}
-      - CACHE_TTL=${CACHE_TTL:-3600}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "0.25"
-        reservations:
-          memory: 256M
-          cpus: "0.1"
-    restart: unless-stopped
-
-  # Client Service (Frontend)
-  client:
+  # Frontend Service
+  frontend:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: bookstore_client
+    container_name: bookstore_frontend
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - NEXT_PUBLIC_RECOMMENDATION_ENGINE_URL=http://localhost:8000
-      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
     depends_on:
-      api-gateway:
+      backend-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "0.5"
-        reservations:
-          memory: 256M
-          cpus: "0.25"
-    restart: unless-stopped
-
-  # Database Admin (Optional)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: bookstore_pgadmin
-    environment:
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD: "admin"
-      PGADMIN_CONFIG_MASTER_EMAIL: "admin@bookstore.com"
-    ports:
-      - "5050:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/misc/ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.25"
-        reservations:
-          memory: 128M
-          cpus: "0.1"
-    restart: unless-stopped
 
 volumes:
   postgres_data:
-    driver: local
   redis_data:
-    driver: local
   weaviate_data:
-    driver: local
 
 networks:
-  bookstore_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+  default:
+    name: bookstore_network

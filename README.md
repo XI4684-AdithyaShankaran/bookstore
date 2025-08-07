@@ -14,38 +14,223 @@ This is a NextJS + FastAPI full-stack application for a modern online bookstore.
 ## Getting Started
 
 ### Prerequisites
-- Docker and Docker Compose
-- Node.js 20+
-- Python 3.11+
+- Python 3.8+
+- Node.js 18+
+- PostgreSQL 15+
+- Redis 7+
+- Git
 
-### Development Setup
+### Local Development Setup (Without Docker)
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd bookstore
-   ```
+#### 1. Install System Dependencies
 
-2. **Start the development environment**
-   ```bash
-   docker-compose up -d
-   ```
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-venv postgresql postgresql-contrib redis-server netcat-openbsd lsof
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install nodejs
+```
 
-3. **Install frontend dependencies**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+**macOS:**
+```bash
+brew install python node postgresql redis netcat lsof
+brew services start postgresql
+brew services start redis
+```
 
-4. **Install API server dependencies**
-   ```bash
-   cd services/api-server
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
-   ```
+#### 2. Clone and Setup Environment
+```bash
+git clone <repository-url>
+cd bookstore
+cp env.development .env
+```
+
+#### 3. Setup Databases
+
+**PostgreSQL:**
+```bash
+# Create database and user
+sudo -u postgres psql -c "CREATE USER bookstore_user WITH PASSWORD 'bookstore_pass';"
+sudo -u postgres psql -c "CREATE DATABASE bookstore_db OWNER bookstore_user;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bookstore_db TO bookstore_user;"
+```
+
+**Redis:**
+```bash
+# Start Redis with password
+redis-server --port 6379 --daemonize yes --requirepass bookstore_redis_pass
+```
+
+#### 4. Setup Python Services
+
+**Backend Service:**
+```bash
+cd services/backend-service
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cd ../..
+```
+
+
+
+**AI Service (Unified ML + Recommendations + Analytics):**
+```bash
+cd services/ai-service
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cd ../..
+```
+
+**ETL Service (Data Loading):**
+```bash
+cd services/etl-service
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cd ../..
+```
+
+#### 5. Setup Frontend Client
+```bash
+cd client
+npm install
+cd ..
+```
+
+#### 6. Start All Services
+
+**Start Backend Services (in separate terminals):**
+```bash
+# Terminal 1 - Backend Service (Main API)
+cd services/backend-service
+source venv/bin/activate
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2 - AI Service (ML + Recommendations + Analytics)
+cd services/ai-service
+source venv/bin/activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+# Terminal 3 - ETL Service (Data Loading)
+cd services/etl-service
+source venv/bin/activate
+python app/main.py
+```
+
+**Start Frontend Client:**
+```bash
+# Terminal 7 - Frontend Client
+cd client
+npm run dev
+```
+
+#### 7. Access the Application
+
+- **Frontend**: http://localhost:3000
+- **Backend Service**: http://localhost:8000
+- **AI Service**: http://localhost:8003
+
+#### 8. API Documentation
+
+- **Backend API Docs**: http://localhost:8000/docs
+- **AI Service Docs**: http://localhost:8003/docs
+
+### Docker Development Setup (Alternative)
+
+If you prefer using Docker:
+
+```bash
+docker-compose up -d
+```
+
+### Cleanup Commands
+
+**Stop All Services:**
+```bash
+# Stop Python services
+pkill -f "uvicorn"
+
+# Stop Node.js services
+pkill -f "npm run dev"
+pkill -f "next dev"
+
+# Stop databases
+redis-cli -p 6379 -a bookstore_redis_pass shutdown
+sudo systemctl stop postgresql
+```
+
+**Clean Up Files:**
+```bash
+# Remove log files
+find . -name "*.log" -delete
+
+# Remove Python cache
+find . -type f -name "*.pyc" -delete
+find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# Remove Node.js cache
+find . -name ".next" -type d -exec rm -rf {} +
+```
+
+**Full Cleanup (Remove Everything):**
+```bash
+# Stop all services first
+pkill -f "uvicorn"
+pkill -f "npm run dev"
+pkill -f "next dev"
+redis-cli -p 6379 -a bookstore_redis_pass shutdown
+
+# Remove virtual environments
+find . -name "venv" -type d -exec rm -rf {} +
+
+# Remove node_modules
+find . -name "node_modules" -type d -exec rm -rf {} +
+
+# Remove cache files
+find . -name "*.log" -delete
+find . -type f -name "*.pyc" -delete
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -name ".next" -type d -exec rm -rf {} +
+```
+
+### Individual Service Commands
+
+**Start Individual Services:**
+```bash
+# Backend Service (Main API)
+cd services/backend-service && source venv/bin/activate && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# AI Service (ML + Recommendations + Analytics)
+cd services/ai-service && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+# ETL Service (Data Loading)
+cd services/etl-service && source venv/bin/activate && python app/main.py
+
+# Frontend Client
+cd client && npm run dev
+```
+
+**Database Commands:**
+```bash
+# Connect to PostgreSQL
+psql -h localhost -U bookstore_user -d bookstore_db
+
+# Connect to Redis
+redis-cli -p 6379 -a bookstore_redis_pass
+
+# Check if services are running
+lsof -i :8000  # Check API Gateway
+lsof -i :8001  # Check Backend Service
+lsof -i :3000  # Check Frontend
+lsof -i :5432  # Check PostgreSQL
+lsof -i :6379  # Check Redis
+```
 
 ### Environment Variables
 
@@ -113,18 +298,18 @@ This project is licensed under the MIT License.
    ```sh
    export KAGGLE_USERNAME=your_kaggle_username
    export KAGGLE_KEY=your_kaggle_key
-   export DATABASE_URL=postgresql://user:password@localhost:5432/bookstore
+   export DATABASE_URL=postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db
    ```
 2. Build and run the loader:
    ```sh
-   docker build -f services/data-service/Dockerfile -t bkmrk-kaggle-loader services/data-service/
+   docker build -f services/backend-service/Dockerfile.kaggleloader -t bkmrk-kaggle-loader services/backend-service/
    docker run --env-file .env bkmrk-kaggle-loader
    ```
 
 ### Cloud (Kubernetes Job)
 1. Build and push the loader image to your registry:
    ```sh
-   docker build -f services/data-service/Dockerfile -t us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest services/data-service/
+   docker build -f services/backend-service/Dockerfile.kaggleloader -t us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest services/backend-service/
    docker push us-central1-docker.pkg.dev/bookstore-project-464717/bookstore/bkmrk-kaggle-loader:latest
    ```
 2. Ensure your Kubernetes secrets contain `DATABASE_URL`, `KAGGLE_USERNAME`, and `KAGGLE_KEY`.
