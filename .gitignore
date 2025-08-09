@@ -1,9 +1,3 @@
-# Environment files (environment-specific .env files are committed to respective branches)
-# Only ignore local overrides and temporary env files
-.env.local
-.env.temp
-.env.backup
-
 # Dependencies
 node_modules/
 __pycache__/

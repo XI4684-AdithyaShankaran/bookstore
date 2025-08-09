@@ -124,38 +124,65 @@ class RedisConnectionManager:
             encoding='utf-8'
         )
     
+    def _create_pool_from_url(self, url: str) -> ConnectionPool:
+        """Create connection pool from a Redis URL"""
+        return ConnectionPool.from_url(
+            url,
+            max_connections=self.config.max_connections,
+            socket_connect_timeout=self.config.connection_timeout,
+            socket_timeout=self.config.socket_timeout,
+            retry_on_timeout=self.config.retry_on_timeout,
+            health_check_interval=self.config.health_check_interval,
+            decode_responses=True,
+            encoding='utf-8'
+        )
+    
     def initialize_connections(self):
         """Initialize Redis connections with dynamic configuration"""
         try:
-            # Primary Redis connection
-            redis_host = os.getenv("REDIS_HOST", "localhost")
-            redis_port = int(os.getenv("REDIS_PORT", "6379"))
-            redis_password = os.getenv("REDIS_PASSWORD")
-            redis_db = int(os.getenv("REDIS_DB", "0"))
+            # Prefer URL configuration for primary
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                self._primary_pool = self._create_pool_from_url(redis_url)
+                primary_desc = "url"
+            else:
+                # Fallback to discrete host/port configuration
+                redis_host = os.getenv("REDIS_HOST", "localhost")
+                redis_port = int(os.getenv("REDIS_PORT", "6379"))
+                redis_password = os.getenv("REDIS_PASSWORD")
+                redis_db = int(os.getenv("REDIS_DB", "0"))
+                self._primary_pool = self._create_connection_pool(
+                    host=redis_host,
+                    port=redis_port,
+                    password=redis_password,
+                    db=redis_db
+                )
+                primary_desc = f"{redis_host}:{redis_port}"
             
-            self._primary_pool = self._create_connection_pool(
-                host=redis_host,
-                port=redis_port,
-                password=redis_password,
-                db=redis_db
-            )
-            
-            # Replica connections (for read scaling)
-            replica_hosts = os.getenv("REDIS_REPLICA_HOSTS", "").split(",")
-            if replica_hosts and replica_hosts[0]:
-                for replica_host in replica_hosts:
-                    host, port = replica_host.strip().split(":")
-                    self._replica_pools.append(
-                        self._create_connection_pool(
-                            host=host,
-                            port=int(port),
-                            password=redis_password,
-                            db=redis_db,
-                            is_replica=True
+            # Prefer URL list for replicas
+            replica_urls = [u.strip() for u in os.getenv("REDIS_REPLICA_URLS", "").split(",") if u.strip()]
+            if replica_urls:
+                for url in replica_urls:
+                    self._replica_pools.append(self._create_pool_from_url(url))
+            else:
+                # Fallback to host:port list
+                redis_password = os.getenv("REDIS_PASSWORD")
+                redis_db = int(os.getenv("REDIS_DB", "0"))
+                replica_hosts = os.getenv("REDIS_REPLICA_HOSTS", "").split(",")
+                if replica_hosts and replica_hosts[0]:
+                    for replica_host in replica_hosts:
+                        host, port = replica_host.strip().split(":")
+                        self._replica_pools.append(
+                            self._create_connection_pool(
+                                host=host,
+                                port=int(port),
+                                password=redis_password,
+                                db=redis_db,
+                                is_replica=True
+                            )
                         )
-                    )
             
-            logger.info(f"✅ Redis connections initialized - Primary: {redis_host}:{redis_port}, Replicas: {len(self._replica_pools)}")
+            logger.info(f"✅ Redis connections initialized - Primary: {primary_desc}, Replicas: {len(self._replica_pools)}")
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize Redis connections: {e}")

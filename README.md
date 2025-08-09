@@ -76,9 +76,9 @@ cd ../..
 
 
 
-**AI Service (Unified ML + Recommendations + Analytics):**
+**AI/ML Service (Consolidated - Recommendations, Analytics, Agentic Tools & Web Search):**
 ```bash
-cd services/ai-service
+cd services/ai-ml-service
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -206,8 +206,8 @@ find . -name ".next" -type d -exec rm -rf {} +
 # Backend Service (Main API)
 cd services/backend-service && source venv/bin/activate && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-# AI Service (ML + Recommendations + Analytics)
-cd services/ai-service && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+# AI/ML Service (Consolidated - Recommendations, Analytics, Agentic Tools & Web Search)
+cd services/ai-ml-service && source venv/bin/activate && python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 
 # ETL Service (Data Loading)
 cd services/etl-service && source venv/bin/activate && python app/main.py
@@ -264,7 +264,7 @@ bookstore/
 ├── frontend/              # Next.js 15 frontend application
 ├── services/              # Microservices architecture
 │   ├── api-server/        # FastAPI main API server
-│   ├── ai-service/        # AI/ML recommendation service
+│   ├── ai-ml-service/     # Consolidated AI/ML service (recommendations + analytics + agentic tools + web search)
 │   ├── analytics-service/ # Analytics and metrics service
 │   └── data-service/      # Data processing and ETL
 ├── k8s/                   # Kubernetes deployment configurations

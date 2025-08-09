@@ -26,7 +26,7 @@ class RecommendationService:
     
     def __init__(self, db: Session):
         self.db = db
-        self.ai_service_url = "http://ai-service:8003"
+        self.ai_service_url = "http://ai-ml-service:8003"
         self.cache = {}
     
     async def get_user_recommendations(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:

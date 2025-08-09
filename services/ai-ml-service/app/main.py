@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Production AI Service for Bkmrk'd Bookstore
-Full production implementation with real data processing
+Consolidated AI/ML Service for Bkmrk'd Bookstore
+Combines recommendation engine, analytics, and vector search capabilities
 """
 
 import os
@@ -29,6 +29,19 @@ from ragas.metrics import faithfulness, answer_relevancy, context_relevancy
 from datasets import Dataset
 from sentence_transformers import SentenceTransformer
 
+# Web Search and Agentic Tools
+import requests
+import aiohttp
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+import wikipedia
+from newsapi import NewsApiClient
+
+# LangChain for Agentic Tools
+from langchain.agents import initialize_agent, AgentType
+from langchain.tools import Tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 # Configure production logging
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +59,7 @@ WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
 
 # Global variables
 gemini_model = None
@@ -89,6 +103,37 @@ class VectorSearchResponse(BaseModel):
     query_embedding: List[float]
     processing_time: float
 
+class WebSearchRequest(BaseModel):
+    query: str = Field(..., description="Search query")
+    max_results: int = Field(5, ge=1, le=20, description="Maximum number of results")
+    search_type: str = Field("web", description="Search type: web, news, wikipedia")
+
+class WebSearchResponse(BaseModel):
+    results: List[Dict[str, Any]]
+    query: str
+    search_type: str
+    processing_time: float
+
+class AgenticRequest(BaseModel):
+    task: str = Field(..., description="Task to perform")
+    context: Optional[str] = Field(None, description="Additional context")
+    tools: List[str] = Field(["web_search", "wikipedia", "news"], description="Tools to use")
+
+class AgenticResponse(BaseModel):
+    result: str
+    reasoning: str
+    tools_used: List[str]
+    processing_time: float
+
+class BookAnalysisRequest(BaseModel):
+    book_title: str = Field(..., description="Book title to analyze")
+    analysis_type: str = Field("comprehensive", description="Analysis type: comprehensive, market, reviews")
+
+class BookAnalysisResponse(BaseModel):
+    analysis: Dict[str, Any]
+    sources: List[str]
+    processing_time: float
+
 # Initialize Gemini model
 def get_gemini_model():
     """Initialize Gemini model for AI tasks"""
@@ -104,6 +149,33 @@ def get_gemini_model():
             max_output_tokens=2048,
             candidate_count=1
         )
+    )
+
+# Initialize OpenAI LLM for agentic tools
+def get_gemini_llm():
+    """Initialize Gemini LLM for agentic tools"""
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        logger.warning("GEMINI_API_KEY not set - agentic tools will be limited")
+        return None
+    
+    return ChatGoogleGenerativeAI(
+        model="gemini-pro",
+        google_api_key=gemini_api_key,
+        temperature=0.3,
+        max_tokens=1000
+    )
+
+def get_openai_llm():
+    """Initialize OpenAI LLM for agentic tools (fallback)"""
+    if not OPENAI_API_KEY:
+        logger.warning("OPENAI_API_KEY not set - agentic tools will be limited")
+        return None
+    
+    return OpenAI(
+        openai_api_key=OPENAI_API_KEY,
+        temperature=0.3,
+        max_tokens=1000
     )
 
 class BookService:
@@ -755,6 +827,328 @@ class VectorSearchService:
                 processing_time=time.time() - start_time
             )
 
+class WebSearchService:
+    """Web search service with multiple search engines"""
+    
+    def __init__(self):
+        self.ddgs = DDGS()
+        self.news_api = NewsApiClient(api_key=NEWS_API_KEY) if NEWS_API_KEY else None
+    
+    async def search_web(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search the web using DuckDuckGo"""
+        try:
+            results = []
+            search_results = self.ddgs.text(query, max_results=max_results)
+            
+            for result in search_results:
+                results.append({
+                    "title": result.get("title", ""),
+                    "link": result.get("link", ""),
+                    "snippet": result.get("body", ""),
+                    "source": "DuckDuckGo"
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Web search error: {e}")
+            return []
+    
+    async def search_news(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search news using NewsAPI"""
+        try:
+            if not self.news_api:
+                return []
+            
+            news_results = self.news_api.get_everything(
+                q=query,
+                language='en',
+                sort_by='relevancy',
+                page_size=max_results
+            )
+            
+            results = []
+            for article in news_results.get("articles", []):
+                results.append({
+                    "title": article.get("title", ""),
+                    "link": article.get("url", ""),
+                    "snippet": article.get("description", ""),
+                    "source": article.get("source", {}).get("name", "NewsAPI"),
+                    "published_at": article.get("publishedAt", "")
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"News search error: {e}")
+            return []
+    
+    async def search_wikipedia(self, query: str, max_results: int = 3) -> List[Dict[str, Any]]:
+        """Search Wikipedia"""
+        try:
+            # Search Wikipedia
+            search_results = wikipedia.search(query, results=max_results)
+            
+            results = []
+            for title in search_results:
+                try:
+                    page = wikipedia.page(title, auto_suggest=False)
+                    results.append({
+                        "title": page.title,
+                        "link": page.url,
+                        "snippet": wikipedia.summary(title, sentences=3),
+                        "source": "Wikipedia"
+                    })
+                except Exception as e:
+                    logger.warning(f"Error fetching Wikipedia page {title}: {e}")
+                    continue
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Wikipedia search error: {e}")
+            return []
+
+class AgenticToolsService:
+    """Agentic tools service using LangChain"""
+    
+    def __init__(self, web_search_service: WebSearchService):
+        self.web_search = web_search_service
+        self.llm = get_gemini_llm()
+        self.agent = None
+        
+        if self.llm:
+            self._initialize_agent()
+    
+    def _initialize_agent(self):
+        """Initialize LangChain agent with tools"""
+        try:
+            # Define tools
+            tools = [
+                Tool(
+                    name="web_search",
+                    func=self._web_search_tool,
+                    description="Search the web for current information"
+                ),
+                Tool(
+                    name="wikipedia_search",
+                    func=self._wikipedia_tool,
+                    description="Search Wikipedia for detailed information"
+                ),
+                Tool(
+                    name="news_search",
+                    func=self._news_tool,
+                    description="Search recent news articles"
+                )
+            ]
+            
+            # Initialize agent
+            self.agent = initialize_agent(
+                tools,
+                self.llm,
+                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                verbose=True
+            )
+            
+            logger.info("Agentic tools initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error initializing agentic tools: {e}")
+    
+    def _web_search_tool(self, query: str) -> str:
+        """Web search tool for agent"""
+        try:
+            results = asyncio.run(self.web_search.search_web(query, max_results=3))
+            if results:
+                return json.dumps(results, indent=2)
+            return "No web search results found."
+        except Exception as e:
+            return f"Web search error: {e}"
+    
+    def _wikipedia_tool(self, query: str) -> str:
+        """Wikipedia search tool for agent"""
+        try:
+            results = asyncio.run(self.web_search.search_wikipedia(query, max_results=2))
+            if results:
+                return json.dumps(results, indent=2)
+            return "No Wikipedia results found."
+        except Exception as e:
+            return f"Wikipedia search error: {e}"
+    
+    def _news_tool(self, query: str) -> str:
+        """News search tool for agent"""
+        try:
+            results = asyncio.run(self.web_search.search_news(query, max_results=3))
+            if results:
+                return json.dumps(results, indent=2)
+            return "No news results found."
+        except Exception as e:
+            return f"News search error: {e}"
+    
+    async def execute_task(self, task: str, context: str = None, tools: List[str] = None) -> Dict[str, Any]:
+        """Execute a task using agentic tools"""
+        start_time = time.time()
+        
+        try:
+            if not self.agent:
+                # Fallback to direct search
+                results = await self._fallback_search(task, tools or ["web_search"])
+                return {
+                    "result": json.dumps(results, indent=2),
+                    "reasoning": "Used direct search as agentic tools unavailable",
+                    "tools_used": tools or ["web_search"],
+                    "processing_time": time.time() - start_time
+                }
+            
+            # Use LangChain agent
+            full_task = task
+            if context:
+                full_task = f"Context: {context}\nTask: {task}"
+            
+            result = self.agent.run(full_task)
+            
+            return {
+                "result": result,
+                "reasoning": "Executed using LangChain agentic tools",
+                "tools_used": tools or ["web_search", "wikipedia", "news"],
+                "processing_time": time.time() - start_time
+            }
+            
+        except Exception as e:
+            logger.error(f"Agentic task execution error: {e}")
+            return {
+                "result": f"Error executing task: {e}",
+                "reasoning": "Task execution failed",
+                "tools_used": [],
+                "processing_time": time.time() - start_time
+            }
+    
+    async def _fallback_search(self, query: str, tools: List[str]) -> List[Dict[str, Any]]:
+        """Fallback search when agentic tools are unavailable"""
+        results = []
+        
+        for tool in tools:
+            try:
+                if tool == "web_search":
+                    results.extend(await self.web_search.search_web(query, max_results=3))
+                elif tool == "wikipedia":
+                    results.extend(await self.web_search.search_wikipedia(query, max_results=2))
+                elif tool == "news":
+                    results.extend(await self.web_search.search_news(query, max_results=3))
+            except Exception as e:
+                logger.error(f"Fallback search error for {tool}: {e}")
+        
+        return results
+
+class BookAnalysisService:
+    """Book analysis service using web search and AI"""
+    
+    def __init__(self, web_search_service: WebSearchService, gemini_model):
+        self.web_search = web_search_service
+        self.gemini_model = gemini_model
+    
+    async def analyze_book(self, book_title: str, analysis_type: str = "comprehensive") -> Dict[str, Any]:
+        """Analyze a book using web search and AI"""
+        start_time = time.time()
+        
+        try:
+            # Search for book information
+            search_results = await self.web_search.search_web(f"{book_title} book review analysis", max_results=5)
+            news_results = await self.web_search.search_news(f"{book_title} book", max_results=3)
+            wiki_results = await self.web_search.search_wikipedia(book_title, max_results=2)
+            
+            # Combine all results
+            all_results = search_results + news_results + wiki_results
+            
+            # Create context for AI analysis
+            context = self._create_analysis_context(all_results, book_title, analysis_type)
+            
+            # Generate AI analysis
+            prompt = self._create_analysis_prompt(book_title, analysis_type, context)
+            
+            if self.gemini_model:
+                response = self.gemini_model.generate_content(prompt)
+                analysis = json.loads(response.text)
+            else:
+                analysis = self._fallback_analysis(all_results, book_title, analysis_type)
+            
+            processing_time = time.time() - start_time
+            
+            return {
+                "analysis": analysis,
+                "sources": [result.get("source", "Unknown") for result in all_results],
+                "processing_time": processing_time
+            }
+            
+        except Exception as e:
+            logger.error(f"Book analysis error: {e}")
+            return {
+                "analysis": {"error": str(e)},
+                "sources": [],
+                "processing_time": time.time() - start_time
+            }
+    
+    def _create_analysis_context(self, results: List[Dict], book_title: str, analysis_type: str) -> str:
+        """Create context from search results"""
+        context_parts = [f"Book: {book_title}"]
+        context_parts.append(f"Analysis Type: {analysis_type}")
+        
+        for i, result in enumerate(results[:10], 1):
+            context_parts.append(f"Source {i} ({result.get('source', 'Unknown')}):")
+            context_parts.append(f"Title: {result.get('title', 'N/A')}")
+            context_parts.append(f"Content: {result.get('snippet', 'N/A')}")
+            context_parts.append("---")
+        
+        return "\n".join(context_parts)
+    
+    def _create_analysis_prompt(self, book_title: str, analysis_type: str, context: str) -> str:
+        """Create AI prompt for book analysis"""
+        if analysis_type == "comprehensive":
+            analysis_focus = "comprehensive analysis including market position, reviews, author background, and cultural impact"
+        elif analysis_type == "market":
+            analysis_focus = "market analysis including sales performance, target audience, and competitive positioning"
+        elif analysis_type == "reviews":
+            analysis_focus = "review analysis including critical reception, reader feedback, and overall sentiment"
+        else:
+            analysis_focus = "general analysis"
+        
+        return f"""
+        Analyze the book "{book_title}" based on the following information.
+        
+        Context:
+        {context}
+        
+        Please provide a {analysis_focus} in the following JSON format:
+        {{
+            "book_title": "{book_title}",
+            "analysis_type": "{analysis_type}",
+            "summary": "Brief summary of the book",
+            "market_position": "Market analysis and positioning",
+            "critical_reception": "Critical reviews and reception",
+            "target_audience": "Target audience analysis",
+            "cultural_impact": "Cultural significance and impact",
+            "recommendations": "Recommendations for readers",
+            "confidence_score": 0.85
+        }}
+        
+        Base your analysis on the provided sources and be objective in your assessment.
+        """
+    
+    def _fallback_analysis(self, results: List[Dict], book_title: str, analysis_type: str) -> Dict[str, Any]:
+        """Fallback analysis when AI is unavailable"""
+        return {
+            "book_title": book_title,
+            "analysis_type": analysis_type,
+            "summary": f"Analysis based on {len(results)} sources",
+            "market_position": "Market analysis not available",
+            "critical_reception": "Review analysis not available",
+            "target_audience": "Audience analysis not available",
+            "cultural_impact": "Impact analysis not available",
+            "recommendations": "Recommendations not available",
+            "confidence_score": 0.5,
+            "sources_count": len(results)
+        }
+
 # Database dependency
 def get_db():
     """Get database session"""
@@ -768,15 +1162,19 @@ def get_db():
 recommendation_engine = None
 ragas_analytics = None
 vector_search_service = None
+web_search_service = None
+agentic_tools_service = None
+book_analysis_service = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global gemini_model, weaviate_client, redis_client, db_engine, SessionLocal
+    global gemini_model, openai_llm, weaviate_client, redis_client, db_engine, SessionLocal
     global recommendation_engine, ragas_analytics, vector_search_service, embedding_model
+    global web_search_service, agentic_tools_service, book_analysis_service
     
     # Startup
-    logger.info("Starting Bkmrk'd AI Service...")
+    logger.info("Starting Bkmrk'd AI/ML Service...")
     try:
         # Initialize Gemini
         if GEMINI_API_KEY:
@@ -784,6 +1182,20 @@ async def lifespan(app: FastAPI):
             logger.info("Gemini initialized successfully")
         else:
             logger.warning("GEMINI_API_KEY not set - AI features will be limited")
+        
+        # Initialize Gemini LLM for agentic tools
+        gemini_llm = get_gemini_llm()
+        if gemini_llm:
+            logger.info("Gemini LLM for agentic tools initialized successfully")
+        else:
+            logger.warning("Gemini LLM not available - agentic tools will be limited")
+        
+        # Initialize OpenAI LLM (fallback)
+        openai_llm = get_openai_llm()
+        if openai_llm:
+            logger.info("OpenAI LLM (fallback) initialized successfully")
+        else:
+            logger.warning("OpenAI LLM not available - agentic tools will be limited")
         
         # Initialize embedding model
         embedding_model = SentenceTransformer(EMBEDDING_MODEL)
@@ -819,9 +1231,12 @@ async def lifespan(app: FastAPI):
             recommendation_engine = RecommendationEngine(db_session)
             ragas_analytics = RAGASAnalytics()
             vector_search_service = VectorSearchService()
+            web_search_service = WebSearchService()
+            agentic_tools_service = AgenticToolsService(web_search_service)
+            book_analysis_service = BookAnalysisService(web_search_service, gemini_model)
             db_session.close()
         
-        logger.info("AI Service started successfully")
+        logger.info("AI/ML Service started successfully")
         
     except Exception as e:
         logger.error(f"Startup failed: {e}")
@@ -830,19 +1245,19 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("Shutting down AI Service...")
+    logger.info("Shutting down AI/ML Service...")
     try:
         if redis_client:
             redis_client.close()
         if db_engine:
             db_engine.dispose()
-        logger.info("AI Service shutdown complete")
+        logger.info("AI/ML Service shutdown complete")
     except Exception as e:
         logger.error(f"Shutdown error: {e}")
 
 app = FastAPI(
-    title="Bkmrk'd AI Service",
-    description="Production AI/ML service for book recommendations and analytics",
+    title="Bkmrk'd AI/ML Service",
+    description="Consolidated AI/ML service for book recommendations, analytics, and vector search",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -863,7 +1278,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "service": "Bkmrk'd AI Service",
+        "service": "Bkmrk'd AI/ML Service",
         "version": "2.0.0",
         "timestamp": time.time(),
         "components": {
@@ -926,17 +1341,94 @@ async def vector_search(request: VectorSearchRequest):
     
     return await vector_search_service.search_books(request)
 
+@app.post("/web-search", response_model=WebSearchResponse)
+async def search_web(request: WebSearchRequest):
+    """Search the web using multiple engines"""
+    start_time = time.time()
+    
+    if not web_search_service:
+        raise HTTPException(status_code=503, detail="Web search service not available")
+    
+    try:
+        if request.search_type == "web":
+            results = await web_search_service.search_web(request.query, request.max_results)
+        elif request.search_type == "news":
+            results = await web_search_service.search_news(request.query, request.max_results)
+        elif request.search_type == "wikipedia":
+            results = await web_search_service.search_wikipedia(request.query, request.max_results)
+        else:
+            # Combined search
+            web_results = await web_search_service.search_web(request.query, request.max_results // 2)
+            news_results = await web_search_service.search_news(request.query, request.max_results // 2)
+            results = web_results + news_results
+        
+        processing_time = time.time() - start_time
+        
+        return WebSearchResponse(
+            results=results,
+            query=request.query,
+            search_type=request.search_type,
+            processing_time=processing_time
+        )
+        
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        raise HTTPException(status_code=500, detail="Web search failed")
+
+@app.post("/agentic", response_model=AgenticResponse)
+async def execute_agentic_task(request: AgenticRequest):
+    """Execute a task using agentic tools"""
+    if not agentic_tools_service:
+        raise HTTPException(status_code=503, detail="Agentic tools service not available")
+    
+    try:
+        result = await agentic_tools_service.execute_task(
+            request.task,
+            request.context,
+            request.tools
+        )
+        
+        return AgenticResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Agentic task error: {e}")
+        raise HTTPException(status_code=500, detail="Agentic task failed")
+
+@app.post("/book-analysis", response_model=BookAnalysisResponse)
+async def analyze_book(request: BookAnalysisRequest):
+    """Analyze a book using web search and AI"""
+    if not book_analysis_service:
+        raise HTTPException(status_code=503, detail="Book analysis service not available")
+    
+    try:
+        result = await book_analysis_service.analyze_book(
+            request.book_title,
+            request.analysis_type
+        )
+        
+        return BookAnalysisResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Book analysis error: {e}")
+        raise HTTPException(status_code=500, detail="Book analysis failed")
+
 @app.get("/mcp/health")
 async def mcp_health_check():
     """MCP server health check"""
     return {
         "status": "healthy",
-        "service": "MCP Server",
+        "service": "Consolidated AI/ML Service",
         "capabilities": [
             "book_recommendations",
             "vector_search",
             "analytics",
             "embeddings",
+            "web_search",
+            "news_search",
+            "wikipedia_search",
+            "agentic_tools",
+            "book_analysis",
+            "langchain_integration",
             "collaborative_filtering",
             "content_based_filtering"
         ]
