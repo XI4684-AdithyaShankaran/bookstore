@@ -23,7 +23,7 @@ class Logger {
   constructor() {
     // Initialize logging
     this.info('Logger', 'Frontend logger initialized');
-    
+
     // Initialize browser features only on client side
     if (typeof window !== 'undefined') {
       // Use setTimeout to ensure this runs after hydration
@@ -108,7 +108,7 @@ class Logger {
     // Console output
     const prefix = `[${entry.timestamp}] [${category}]`;
     const levelEmoji = this.getLevelEmoji(level);
-    
+
     switch (level) {
       case LogLevel.DEBUG:
         console.debug(`${levelEmoji} ${prefix} ${message}`, data || '');
@@ -142,7 +142,8 @@ class Logger {
 
   private async sendToBackend(entry: LogEntry) {
     try {
-      await fetch('/api/logs', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      await fetch(`${apiUrl}/api/logs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -179,7 +180,7 @@ class Logger {
   apiResponse(method: string, url: string, status: number, data?: any) {
     const level = status >= 400 ? LogLevel.ERROR : LogLevel.INFO;
     const message = `${method} ${url} - ${status}`;
-    
+
     if (level === LogLevel.ERROR) {
       this.error('API', message, undefined, data);
     } else {

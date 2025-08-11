@@ -71,8 +71,8 @@ class DatabaseOptimizations:
                 # Author search index
                 Index('idx_books_author_lower', text('LOWER(author)')),
                 
-                # Rating and popularity index
-                Index('idx_books_rating_popularity', 'rating', 'ratings_count'),
+                # Rating index (removed ratings_count as it doesn't exist)
+                Index('idx_books_rating', 'rating'),
                 
                 # Genre index
                 Index('idx_books_genre', 'genre'),
@@ -80,45 +80,68 @@ class DatabaseOptimizations:
                 # Price range index
                 Index('idx_books_price', 'price'),
                 
-                # Publication year index
-                Index('idx_books_year', 'year'),
+                # Publication year index (using publication_date)
+                Index('idx_books_publication_date', 'publication_date'),
                 
                 # ISBN indexes
                 Index('idx_books_isbn', 'isbn'),
-                Index('idx_books_isbn13', 'isbn13'),
                 
                 # Language index
                 Index('idx_books_language', 'language'),
                 
                 # Composite indexes for common queries
                 Index('idx_books_genre_rating', 'genre', 'rating'),
-                Index('idx_books_year_rating', 'year', 'rating'),
+                Index('idx_books_publication_date_rating', 'publication_date', 'rating'),
                 Index('idx_books_price_rating', 'price', 'rating'),
                 
                 # User table indexes
                 Index('idx_users_email', 'email'),
                 Index('idx_users_active', 'is_active'),
                 
-                # Order table indexes
-                Index('idx_orders_user_id', 'user_id'),
-                Index('idx_orders_status', 'status'),
-                Index('idx_orders_created_at', 'created_at'),
+                # Order table indexes (orders table doesn't exist yet)
+                # Index('idx_orders_user_id', 'user_id'),
+                # Index('idx_orders_status', 'status'),
+                # Index('idx_orders_created_at', 'created_at'),
                 
-                # Cart table indexes
-                Index('idx_cart_user_id', 'user_id'),
-                Index('idx_cart_book_id', 'book_id'),
+                # Cart items table indexes (table is cart_items, not cart)
+                Index('idx_cart_items_user_id', 'user_id'),
+                Index('idx_cart_items_book_id', 'book_id'),
                 
                 # Bookshelf indexes
                 Index('idx_bookshelves_user_id', 'user_id'),
                 Index('idx_bookshelves_name', 'name'),
                 
-                # Wishlist indexes
+                # Wishlist indexes (table is wishlist, not wishlist_items)
                 Index('idx_wishlist_user_book', 'user_id', 'book_id'),
             ]
             
             for index in indexes:
                 try:
-                    session.execute(text(f"CREATE INDEX IF NOT EXISTS {index.name} ON {index.table.name} ({', '.join(index.expressions)})"))
+                    # Extract table name from index
+                    table_name = index.table.name if hasattr(index, 'table') and index.table else None
+                    if not table_name:
+                        # Try to determine table name from index name
+                        if 'books' in index.name:
+                            table_name = 'books'
+                        elif 'users' in index.name:
+                            table_name = 'users'
+                        elif 'cart_items' in index.name:
+                            table_name = 'cart_items'
+                        elif 'bookshelves' in index.name:
+                            table_name = 'bookshelves'
+                        elif 'wishlist' in index.name:
+                            table_name = 'wishlist'
+                        else:
+                            continue
+                    
+                    # Build index creation SQL
+                    if hasattr(index, 'expressions') and index.expressions:
+                        columns = ', '.join([str(expr) for expr in index.expressions])
+                    else:
+                        # Handle text-based indexes
+                        columns = str(index.expressions[0]) if hasattr(index, 'expressions') and index.expressions else 'id'
+                    
+                    session.execute(text(f"CREATE INDEX IF NOT EXISTS {index.name} ON {table_name} ({columns})"))
                 except Exception as e:
                     logger.warning(f"Index {index.name} creation failed: {e}")
             
@@ -133,10 +156,13 @@ class DatabaseOptimizations:
     def optimize_table_statistics(self, session: Session):
         """Update table statistics for query optimization"""
         try:
-            tables = ['books', 'users', 'orders', 'cart', 'bookshelves', 'wishlist_items']
+            tables = ['books', 'users', 'cart_items', 'bookshelves', 'wishlist', 'ratings', 'bookshelf_books']
             
             for table in tables:
-                session.execute(text(f"ANALYZE {table}"))
+                try:
+                    session.execute(text(f"ANALYZE {table}"))
+                except Exception as e:
+                    logger.warning(f"Failed to analyze table {table}: {e}")
             
             session.commit()
             logger.info("✅ Table statistics updated for query optimization")
@@ -251,4 +277,4 @@ class DatabaseOptimizations:
             return {"error": str(e)}
 
 # Global database optimizations instance
-db_optimizations = DatabaseOptimizations(os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/bookstore")) 
+db_optimizations = DatabaseOptimizations(os.getenv("DATABASE_URL", "postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db")) 

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
+WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://weaviate:8080")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
@@ -97,12 +97,12 @@ def get_gemini_model():
     
     genai.configure(api_key=GEMINI_API_KEY)
     return genai.GenerativeModel(
-        'gemini-pro',
+        os.getenv('GEMINI_MODEL', 'gemini-1.5-flash'),
         generation_config=genai.types.GenerationConfig(
-            temperature=0.3,
-            top_p=0.9,
-            max_output_tokens=2048,
-            candidate_count=1
+            temperature=float(os.getenv('GEMINI_TEMPERATURE', '0.3')),
+            top_p=float(os.getenv('GEMINI_TOP_P', '0.9')),
+            max_output_tokens=int(os.getenv('GEMINI_MAX_TOKENS', '2048')),
+            candidate_count=int(os.getenv('GEMINI_CANDIDATES', '1'))
         )
     )
 
@@ -120,7 +120,6 @@ class BookService:
                        publication_date, isbn, language, pages, publisher,
                        created_at, updated_at
                 FROM books 
-                WHERE active = true
                 ORDER BY rating DESC, created_at DESC
                 LIMIT :limit
             """)
@@ -160,7 +159,7 @@ class BookService:
                 SELECT id, title, author, description, genre, rating, price, 
                        publication_date, isbn, language, pages, publisher
                 FROM books 
-                WHERE id = :book_id AND active = true
+                WHERE id = :book_id
             """)
             
             result = self.db.execute(query, {"book_id": book_id})
@@ -789,13 +788,14 @@ async def lifespan(app: FastAPI):
         embedding_model = SentenceTransformer(EMBEDDING_MODEL)
         logger.info(f"Embedding model loaded: {EMBEDDING_MODEL}")
         
-        # Initialize Weaviate
+        # Initialize Weaviate (required)
         try:
             weaviate_client = weaviate.Client(WEAVIATE_URL)
             weaviate_client.is_ready()
             logger.info("Weaviate connected successfully")
         except Exception as e:
-            logger.warning(f"Weaviate connection failed: {e}")
+            logger.error(f"Weaviate connection failed: {e}")
+            raise
         
         # Initialize Redis
         try:

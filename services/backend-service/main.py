@@ -47,6 +47,7 @@ from app.services.notification_service import NotificationService
 from app.services.optimized_algorithms import optimized_algorithms
 from app.api.payment import PaymentService
 from app.services.redis_service import redis_service, cache_result, CacheStrategy
+from app.database.optimizations import db_optimizations
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -79,9 +80,10 @@ recommendation_cache = {}
 cache_lock = threading.Lock()
 last_cache_cleanup = time.time()
 CACHE_CLEANUP_INTERVAL = 300  # 5 minutes
+startup_time = time.time()
 
-# Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/bookstore")
+# Database configuration - Use PostgreSQL for production with Kaggle data
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db")
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,
@@ -198,8 +200,7 @@ class RecommendationEngine:
             # Use optimized database query
             db = SessionLocal()
             try:
-                books_query = db_optimizations.optimize_book_queries(db)
-                books = books_query.all()
+                books = db.query(Book).all()
                 
                 self.books_data = [
                     {
@@ -238,9 +239,19 @@ class RecommendationEngine:
             # Use optimized algorithms
             db = SessionLocal()
             try:
-                recommendations = db_optimizations.optimized_get_user_recommendations(
-                    db, user_id, limit
-                )
+                # Simple recommendation logic for now
+                recommendations = []
+                books = db.query(Book).limit(limit).all()
+                for book in books:
+                    recommendations.append({
+                        "id": book.id,
+                        "title": book.title,
+                        "author": book.author,
+                        "genre": book.genre,
+                        "rating": book.rating,
+                        "price": book.price,
+                        "cover_image": book.cover_image
+                    })
                 
                 # Cache the result
                 cache.set(cache_key, recommendations)
@@ -292,13 +303,23 @@ async def get_current_user(token: str = Depends(security)) -> User:
 async def startup_event():
     """Startup event"""
     try:
-        # Initialize database optimizations
-        db_optimizations.create_optimized_indexes(engine)
-        db_optimizations.optimize_database_connection_pool(engine)
-        db_optimizations.create_database_statistics(engine)
+        # Initialize database optimizations (skip if database not available)
+        try:
+            db = SessionLocal()
+            try:
+                db_optimizations.create_performance_indexes(db)
+                db_optimizations.optimize_table_statistics(db)
+                db_optimizations.vacuum_database(db)
+            finally:
+                db.close()
+        except Exception as db_error:
+            logger.warning(f"⚠️ Database optimizations skipped: {db_error}")
         
-        # Initialize recommendation engine
-        await recommendation_engine.load_books_data()
+        # Initialize recommendation engine (skip if database not available)
+        try:
+            await recommendation_engine.load_books_data()
+        except Exception as rec_error:
+            logger.warning(f"⚠️ Recommendation engine initialization skipped: {rec_error}")
         
         # Start background tasks
         asyncio.create_task(cache_cleanup_task())
@@ -349,10 +370,14 @@ async def health_check():
     try:
         # Database health check
         db_healthy = False
+        db_response_time = "N/A"
         try:
+            import time as time_module
+            start_time = time_module.time()
             db = SessionLocal()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             db.close()
+            db_response_time = f"{(time_module.time() - start_time) * 1000:.2f}ms"
             db_healthy = True
         except Exception as e:
             logger.error(f"❌ Database health check failed: {e}")
@@ -368,19 +393,23 @@ async def health_check():
             "disk_percent": psutil.disk_usage('/').percent
         }
         
+        # Overall health status
+        overall_healthy = db_healthy and redis_health["healthy"]
+        
         return {
-            "status": "healthy" if db_healthy and redis_health["healthy"] else "unhealthy",
+            "status": "healthy" if overall_healthy else "unhealthy",
             "timestamp": time.time(),
             "services": {
                 "database": {
                     "status": "healthy" if db_healthy else "unhealthy",
-                    "response_time": "N/A"
+                    "response_time": db_response_time,
+                    "type": "PostgreSQL"
                 },
                 "redis": redis_health,
                 "api_server": {
                     "status": "healthy",
                     "uptime": time.time() - startup_time,
-                    "version": "1.0.0"
+                    "version": "2.0.0"
                 }
             },
             "system": system_metrics,
@@ -554,7 +583,7 @@ async def create_user(user: UserCreate, db: Session = Depends(get_db), request: 
 
 @app.post("/token", response_model=Token)
 @limiter.limit("200/minute")
-async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
+async def login(user_credentials: UserLogin, db: Session = Depends(get_db), request: Request = None):
     """optimized login endpoint"""
     try:
         user_service = UserService(db)
@@ -564,11 +593,12 @@ async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # optimized bookshelf endpoints
-@app.get("/bookshelves", response_model=List[Bookshelf])
+@app.get("/bookshelves", response_model=List[Dict[str, Any]])
 @limiter.limit("600/minute")
 async def get_user_bookshelves(
     user_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized bookshelf endpoint"""
     try:
@@ -582,11 +612,12 @@ async def get_user_bookshelves(
         logger.error(f"❌ Error getting bookshelves: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/bookshelves", response_model=Bookshelf)
+@app.post("/bookshelves", response_model=Dict[str, Any])
 @limiter.limit("200/minute")
 async def create_bookshelf(
     bookshelf_data: dict,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized bookshelf creation"""
     try:
@@ -605,7 +636,8 @@ async def create_bookshelf(
 async def add_book_to_bookshelf(
     bookshelf_id: int,
     book_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized add book to bookshelf"""
     try:
@@ -625,7 +657,8 @@ async def add_book_to_bookshelf(
 async def remove_book_from_bookshelf(
     bookshelf_id: int,
     book_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized remove book from bookshelf"""
     try:
@@ -643,7 +676,7 @@ async def remove_book_from_bookshelf(
 # optimized cart endpoints
 @app.get("/cart", response_model=dict)
 @limiter.limit("400/minute")
-async def get_cart(current_user: User = Depends(get_current_user)):
+async def get_cart(current_user: User = Depends(get_current_user), request: Request = None):
     """optimized cart retrieval with Redis caching"""
     try:
         cache_key = f"cart:user:{current_user.id}"
@@ -678,7 +711,8 @@ async def get_cart(current_user: User = Depends(get_current_user)):
 async def add_to_cart(
     book_id: int,
     quantity: int = 1,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized cart item addition with cache invalidation"""
     try:
@@ -706,7 +740,8 @@ async def add_to_cart(
 async def update_cart_item(
     item_id: int,
     quantity: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized update cart item"""
     try:
@@ -725,7 +760,8 @@ async def update_cart_item(
 @limiter.limit("200/minute")
 async def remove_from_cart(
     item_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized remove from cart"""
     try:
@@ -742,7 +778,7 @@ async def remove_from_cart(
 
 @app.delete("/cart/clear")
 @limiter.limit("100/minute")
-async def clear_cart(current_user: User = Depends(get_current_user)):
+async def clear_cart(current_user: User = Depends(get_current_user), request: Request = None):
     """optimized clear cart"""
     try:
         db = SessionLocal()
@@ -759,7 +795,7 @@ async def clear_cart(current_user: User = Depends(get_current_user)):
 # optimized wishlist endpoints
 @app.get("/wishlist", response_model=dict)
 @limiter.limit("400/minute")
-async def get_wishlist(current_user: User = Depends(get_current_user)):
+async def get_wishlist(current_user: User = Depends(get_current_user), request: Request = None):
     """optimized wishlist endpoint"""
     try:
         db = SessionLocal()
@@ -776,7 +812,8 @@ async def get_wishlist(current_user: User = Depends(get_current_user)):
 @limiter.limit("200/minute")
 async def add_to_wishlist(
     book_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized add to wishlist"""
     try:
@@ -795,7 +832,8 @@ async def add_to_wishlist(
 @limiter.limit("200/minute")
 async def remove_from_wishlist(
     item_id: int,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """optimized remove from wishlist"""
     try:
@@ -812,7 +850,7 @@ async def remove_from_wishlist(
 
 @app.delete("/wishlist/clear")
 @limiter.limit("100/minute")
-async def clear_wishlist(current_user: User = Depends(get_current_user)):
+async def clear_wishlist(current_user: User = Depends(get_current_user), request: Request = None):
     """optimized clear wishlist"""
     try:
         db = SessionLocal()
@@ -832,7 +870,8 @@ async def clear_wishlist(current_user: User = Depends(get_current_user)):
 async def get_user_recommendations(
     user_id: int,
     limit: int = 10,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    request: Request = None
 ):
     """User recommendations"""
     try:
@@ -846,7 +885,7 @@ async def get_user_recommendations(
 # Authentication endpoints
 @app.post("/auth/google")
 @limiter.limit("200/minute")
-async def google_auth(user_data: dict):
+async def google_auth(user_data: dict, request: Request = None):
     """Google authentication"""
     try:
         # This would handle Google OAuth
@@ -857,7 +896,7 @@ async def google_auth(user_data: dict):
 
 @app.post("/register", response_model=UserResponse)
 @limiter.limit("100/minute")
-async def register_user(user: UserCreate, db: Session = Depends(get_db)):
+async def register_user(user: UserCreate, db: Session = Depends(get_db), request: Request = None):
     """User registration"""
     try:
         user_service = UserService(db)
@@ -876,9 +915,6 @@ async def shutdown_event():
         
         # Close database connections
         engine.dispose()
-        
-        # Close Redis connections
-        redis_service.close()
         
         logger.info("✅ Backend shutdown completed")
         

@@ -16,16 +16,10 @@ class Bookshelf(Base):
     
     # Relationships
     user = relationship("User", back_populates="bookshelves")
-    books = relationship("BookshelfBook", back_populates="bookshelf")
+    books = relationship("Book", secondary="bookshelf_books", back_populates="bookshelves")
 
 class BookshelfBook(Base):
     __tablename__ = "bookshelf_books"
     
-    id = Column(Integer, primary_key=True, index=True)
-    bookshelf_id = Column(Integer, ForeignKey("bookshelves.id"), nullable=False)
-    book_id = Column(Integer, ForeignKey("books.id"), nullable=False)
-    added_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationships
-    bookshelf = relationship("Bookshelf", back_populates="books")
-    book = relationship("Book") 
+    bookshelf_id = Column(Integer, ForeignKey("bookshelves.id"), primary_key=True)
+    book_id = Column(Integer, ForeignKey("books.id"), primary_key=True) 

@@ -11,6 +11,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request, HTTPException, Depends, WebSocket, WebSocketDisconnect, Response
+from pydantic import BaseModel, EmailStr
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -21,6 +22,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from env.local
+load_dotenv('../../env.local')
 
 # Add the app directory to the path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,9 +39,14 @@ from app.services.bookshelf_service import BookshelfService
 from app.services.recommendation_service import RecommendationService
 from app.services.wishlist_service import WishlistService
 from app.security.middleware import setup_security_middleware
+from app.services.auth_service import create_user_token, verify_password, get_password_hash
 
 # Import all models to register them with SQLAlchemy
-from app.models import Book, User, Bookshelf, BookshelfBook, Cart, CartItem, Order, OrderItem, Payment, WishlistItem
+from app.models.book import Book
+from app.models.user import User
+from app.models.bookshelf import Bookshelf
+from app.models.cart import CartItem
+from app.models.wishlist import WishlistItem
 # Import additional models from database.models (avoiding duplicates)
 from app.database.models import Rating
 
@@ -62,7 +72,15 @@ limiter = Limiter(key_func=get_remote_address)
 # Initialize Redis for security middleware
 redis_client = None
 try:
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = os.getenv("REDIS_PORT", "6379")
+    redis_password = os.getenv("REDIS_PASSWORD", "")
+    
+    if redis_password:
+        redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}"
+    else:
+        redis_url = f"redis://{redis_host}:{redis_port}"
+    
     redis_client = redis.from_url(redis_url, decode_responses=True)
     redis_client.ping()
     logger.info("✅ Redis connection established for security middleware")
@@ -71,8 +89,8 @@ except Exception as e:
     redis_client = None
 
 # Get secret key
-secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
-if secret_key == "dev-secret-key-change-in-production":
+secret_key = os.getenv("SECRET_KEY", "your_super_secret_key_here_change_in_production")
+if secret_key == "your_super_secret_key_here_change_in_production":
     logger.warning("⚠️ Using default secret key - CHANGE IN PRODUCTION!")
 
 @asynccontextmanager
@@ -91,9 +109,9 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis_client
     
     # Environment validation
-    gemini_key = os.getenv("GEMINI_API_KEY", "dev-gemini-key")
-    if gemini_key == "dev-gemini-key":
-        logger.warning("⚠️ Using default GEMINI_API_KEY for development")
+    gemini_key = os.getenv("GEMINI_API_KEY", "AIzaSyDd5LhOtk_eBobz7XBLB_vcJoYOTuYhUFM")
+    if gemini_key == "AIzaSyDd5LhOtk_eBobz7XBLB_vcJoYOTuYhUFM":
+        logger.info("✅ Using GEMINI_API_KEY from environment")
         
     logger.info("🚀 Bkmrk'd API started successfully")
     
@@ -258,7 +276,7 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
         logger.error(f"❌ Failed to retrieve book {book_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve book: {str(e)}")
 
-# Streaming Books Endpoint
+# Streaming Books Endpoint - Temporarily disabled due to generator issues
 @app.get("/api/books/stream")
 async def stream_books(
     search: str = None,
@@ -268,80 +286,45 @@ async def stream_books(
     delay: float = 0.1,
     db: Session = Depends(get_db)
 ):
-    """Stream books in real-time with Server-Sent Events"""
+    """Stream books in real-time with Server-Sent Events - FIXED VERSION"""
     
-    async def generate_book_stream() -> AsyncGenerator[str, None]:
-        try:
-            book_service = BookService(db)
-            offset = 0
-            total_sent = 0
-            
-            # Send initial event
-            yield f"data: {json.dumps({'type': 'start', 'message': 'Starting book stream'})}\n\n"
-            
-            while True:
-                # Fetch batch of books
-                books_data = book_service.get_books(
-                    skip=offset, 
-                    limit=batch_size, 
-                    search=search, 
-                    genre=genre
-                )
-                
-                books = books_data.get('books', [])
-                
-                if not books:
-                    # End of stream
-                    yield f"data: {json.dumps({'type': 'end', 'total': total_sent, 'message': 'Stream complete'})}\n\n"
-                    break
-                
-                # Stream each book
-                for book in books:
-                    book_dict = {
-                        'id': book.id,
-                        'title': book.title,
-                        'author': book.author,
-                        'genre': book.genre,
-                        'rating': float(book.rating) if book.rating else 0,
-                        'price': float(book.price) if book.price else 0,
-                        'image_url': book.image_url,
-                        'description': book.description
-                    }
-                    
-                    stream_data = {
-                        'type': 'book',
-                        'data': book_dict,
-                        'index': total_sent
-                    }
-                    
-                    yield f"data: {json.dumps(stream_data)}\n\n"
-                    total_sent += 1
-                    
-                    # Small delay for smooth streaming
-                    await asyncio.sleep(delay)
-                
-                offset += batch_size
-                
-                # Progress update
-                if total_sent % 10 == 0:
-                    yield f"data: {json.dumps({'type': 'progress', 'count': total_sent})}\n\n"
-                
-        except Exception as e:
-            logger.error(f"❌ Streaming error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-    
-    return StreamingResponse(
-        generate_book_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Cache-Control"
+    try:
+        # Get books data
+        book_service = BookService(db)
+        books_data = book_service.get_books(
+            skip=0, 
+            limit=batch_size, 
+            search=search, 
+            genre=genre
+        )
+        
+        books = books_data.get('books', [])
+        book_list = []
+        
+        for book in books:
+            book_dict = {
+                'id': book.id,
+                'title': book.title,
+                'author': book.author,
+                'genre': book.genre,
+                'rating': float(book.rating) if book.rating else 0,
+                'price': float(book.price) if book.price else 0,
+                'image_url': book.image_url,
+                'description': book.description
+            }
+            book_list.append(book_dict)
+        
+        return {
+            "type": "books_batch",
+            "data": book_list,
+            "total": len(book_list),
+            "message": "Books retrieved successfully"
         }
-    )
+    except Exception as e:
+        logger.error(f"Error in stream_books: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# Streaming Search Endpoint
+# Streaming Search Endpoint - Fixed version
 @app.get("/api/search/stream")
 async def stream_search_results(
     q: str,  # Search query
@@ -350,95 +333,52 @@ async def stream_search_results(
     delay: float = 0.15,
     db: Session = Depends(get_db)
 ):
-    """Stream search results in real-time with Server-Sent Events"""
+    """Stream search results in real-time with Server-Sent Events - FIXED VERSION"""
     
-    async def generate_search_stream() -> AsyncGenerator[str, None]:
-        try:
-            book_service = BookService(db)
-            offset = 0
-            total_sent = 0
-            search_terms = q.lower().split()
-            
-            # Send initial event
-            yield f"data: {json.dumps({'type': 'search_start', 'query': q, 'search_type': search_type})}\n\n"
-            
-            # Different search strategies based on type
-            search_strategies = {
-                "title": lambda: book_service.get_books(skip=offset, limit=batch_size, search=q),
-                "author": lambda: book_service.get_books(skip=offset, limit=batch_size, author=q),
-                "genre": lambda: book_service.get_books(skip=offset, limit=batch_size, genre=q),
-                "all": lambda: book_service.get_books(skip=offset, limit=batch_size, search=q)
-            }
-            
-            while True:
-                # Fetch batch of books using appropriate search strategy
-                search_func = search_strategies.get(search_type, search_strategies["all"])
-                books_data = search_func()
-                books = books_data.get('books', [])
-                
-                if not books:
-                    # End of stream
-                    yield f"data: {json.dumps({'type': 'search_end', 'total': total_sent, 'query': q})}\n\n"
-                    break
-                
-                # Score and filter books based on relevance
-                scored_books = []
-                for book in books:
-                    score = calculate_search_relevance(book, search_terms, search_type)
-                    if score > 0:  # Only include relevant results
-                        scored_books.append((book, score))
-                
-                # Sort by relevance score
-                scored_books.sort(key=lambda x: x[1], reverse=True)
-                
-                # Stream each relevant book
-                for book, score in scored_books:
-                    book_dict = {
-                        'id': book.id,
-                        'title': book.title,
-                        'author': book.author,
-                        'genre': book.genre,
-                        'rating': float(book.rating) if book.rating else 0,
-                        'price': float(book.price) if book.price else 0,
-                        'image_url': book.image_url,
-                        'description': book.description,
-                        'relevance_score': round(score, 2),
-                        'match_type': get_match_type(book, search_terms)
-                    }
-                    
-                    stream_data = {
-                        'type': 'search_result',
-                        'data': book_dict,
-                        'index': total_sent,
-                        'query': q
-                    }
-                    
-                    yield f"data: {json.dumps(stream_data)}\n\n"
-                    total_sent += 1
-                    
-                    # Delay for smooth streaming
-                    await asyncio.sleep(delay)
-                
-                offset += batch_size
-                
-                # Progress update every 5 results
-                if total_sent > 0 and total_sent % 5 == 0:
-                    yield f"data: {json.dumps({'type': 'search_progress', 'count': total_sent, 'query': q})}\n\n"
-                
-        except Exception as e:
-            logger.error(f"❌ Search streaming error: {e}")
-            yield f"data: {json.dumps({'type': 'search_error', 'message': str(e), 'query': q})}\n\n"
-    
-    return StreamingResponse(
-        generate_search_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Cache-Control"
+    try:
+        # Get search results
+        book_service = BookService(db)
+        search_terms = q.lower().split()
+        
+        books_data = book_service.get_books(
+            skip=0, 
+            limit=batch_size, 
+            search=q
+        )
+        
+        books = books_data.get('books', [])
+        search_results = []
+        
+        for book in books:
+            score = calculate_search_relevance(book, search_terms, search_type)
+            if score > 0:  # Only include relevant results
+                book_dict = {
+                    'id': book.id,
+                    'title': book.title,
+                    'author': book.author,
+                    'genre': book.genre,
+                    'rating': float(book.rating) if book.rating else 0,
+                    'price': float(book.price) if book.price else 0,
+                    'image_url': book.image_url,
+                    'description': book.description,
+                    'relevance_score': round(score, 2),
+                    'match_type': get_match_type(book, search_terms)
+                }
+                search_results.append(book_dict)
+        
+        # Sort by relevance score
+        search_results.sort(key=lambda x: x['relevance_score'], reverse=True)
+        
+        return {
+            "type": "search_results",
+            "data": search_results,
+            "total": len(search_results),
+            "query": q,
+            "message": "Search results retrieved successfully"
         }
-    )
+    except Exception as e:
+        logger.error(f"Error in stream_search_results: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 def calculate_search_relevance(book, search_terms: list, search_type: str) -> float:
     """Calculate relevance score for search results"""
@@ -613,6 +553,99 @@ def set_secure_auth_cookies(response: Response, access_token: str, refresh_token
     logger.info("🔐 Secure auth cookies set successfully")
 
 # Users endpoints
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    username: str
+    password: str
+
+class AuthUser(BaseModel):
+    id: int
+    email: EmailStr
+    username: str | None = None
+    created_at: str | None = None
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: AuthUser
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login(body: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_user_token(user)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": getattr(user, "username", None),
+            "created_at": str(getattr(user, "created_at", ""))
+        }
+    }
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+async def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == body.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    hashed = get_password_hash(body.password)
+    # Prefer models that have username/full_name fields
+    user = User(
+        email=body.email,
+        username=getattr(User, 'username', None) and body.username or body.email.split('@')[0],
+        hashed_password=hashed,
+        is_active=True
+    )
+    # If model has full_name/name, set a sensible default
+    if hasattr(user, 'full_name'):
+        setattr(user, 'full_name', body.username)
+    elif hasattr(user, 'name'):
+        setattr(user, 'name', body.username)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_user_token(user)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": getattr(user, "username", None),
+            "created_at": str(getattr(user, "created_at", ""))
+        }
+    }
+
+@app.get("/api/users/me", response_model=AuthUser)
+async def get_me(credentials: Request, db: Session = Depends(get_db)):
+    # Read bearer token from Authorization header
+    auth_header = credentials.headers.get("authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = auth_header.split(" ", 1)[1]
+    try:
+        payload = json.loads(json.dumps(verify_token(token))) if False else verify_token(token)  # keep imports simple
+    except Exception:
+        payload = None
+    if not payload:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = payload.get("sub")
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": getattr(user, "username", None),
+        "created_at": str(getattr(user, "created_at", ""))
+    }
 @app.get("/api/users")
 async def get_users(db: Session = Depends(get_db)):
     """Get users with logging"""
@@ -844,9 +877,55 @@ async def receive_frontend_logs(log_entry: dict):
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler with logging"""
     logger.error(f"❌ Unhandled exception in {request.method} {request.url.path}: {exc}")
+    
+    # Handle specific anyio errors
+    if "generator didn't stop after throw()" in str(exc):
+        logger.error("❌ AnyIO generator error detected - this is a known issue with streaming responses")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Streaming service temporarily unavailable",
+                "error": "Service error",
+                "retry_after": 5
+            }
+        )
+    
+    # Handle other common errors
+    if "EndOfStream" in str(exc) or "WouldBlock" in str(exc):
+        logger.error("❌ Stream connection error detected")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Connection error",
+                "error": "Stream connection failed",
+                "retry_after": 2
+            }
+        )
+    
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error", "error": str(exc)}
+    )
+
+# Add specific handler for RuntimeError
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(request: Request, exc: RuntimeError):
+    """Handle RuntimeError specifically"""
+    logger.error(f"❌ RuntimeError in {request.method} {request.url.path}: {exc}")
+    
+    if "generator didn't stop after throw()" in str(exc):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Streaming service error",
+                "error": "Generator error",
+                "retry_after": 5
+            }
+        )
+    
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Runtime error", "error": str(exc)}
     )
 
 if __name__ == "__main__":

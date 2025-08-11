@@ -4,12 +4,10 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 class WishlistItem(Base):
-    __tablename__ = "wishlist_items"
+    __tablename__ = "wishlist"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    book_id = Column(Integer, ForeignKey("books.id"), nullable=False)
-    added_at = Column(DateTime(timezone=True), server_default=func.now())
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    book_id = Column(Integer, ForeignKey("books.id"), primary_key=True)
 
-    user = relationship("User", back_populates="wishlists")
+    user = relationship("User", back_populates="wishlist_items")
     book = relationship("Book") 

@@ -8,15 +8,16 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    username = Column(String, unique=True, index=True, nullable=False)  # Added to match migration
     hashed_password = Column(String, nullable=False)
+    full_name = Column(String)  # Changed from name to full_name to match migration
     is_active = Column(Boolean, default=True)
+    is_superuser = Column(Boolean, default=False)  # Added to match migration
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
-    # Relationships
-    carts = relationship("Cart", back_populates="user")
-    orders = relationship("Order", back_populates="user")
-    payments = relationship("Payment", back_populates="user")
+    # Relationships - updated to match actual schema
+    cart_items = relationship("CartItem", back_populates="user")
+    ratings = relationship("Rating", back_populates="user")
     bookshelves = relationship("Bookshelf", back_populates="user")
-    wishlists = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan") 
+    wishlist_items = relationship("WishlistItem", back_populates="user", cascade="all, delete-orphan") 

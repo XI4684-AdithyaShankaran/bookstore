@@ -1,119 +1,90 @@
-# =============================================================================
-# INDUSTRIAL-STANDARD REDIS DEPENDENCIES
-# =============================================================================
-redis
-redis-py-cluster
+# Core Backend
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic[email]==2.6.1
+pydantic-settings==2.2.1
+python-multipart==0.0.6
 
-# =============================================================================
-# CORE FRAMEWORK DEPENDENCIES
-# =============================================================================
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
+# Database & ORM
+sqlalchemy==2.0.27
+psycopg2-binary==2.9.9
 
-# =============================================================================
-# DATABASE DEPENDENCIES
-# =============================================================================
-sqlalchemy
-psycopg2-binary
-alembic
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+email-validator==2.2.0
+PyJWT==2.3.0
+python-dotenv==1.0.0
 
-# =============================================================================
-# AUTHENTICATION & SECURITY
-# =============================================================================
-python-jose[cryptography]
-passlib[bcrypt]
-python-multipart
-bcrypt
-email-validator
-PyJWT
+# HTTP Clients
+httpx==0.26.0
+requests==2.31.0
+aiohttp==3.9.3
 
-# =============================================================================
-# HTTP & API DEPENDENCIES
-# =============================================================================
-httpx
-requests
-aiohttp
+# Caching & Rate Limiting
+slowapi==0.1.9
+cachetools==5.3.3
+redis==5.0.1
 
-# =============================================================================
-# RATE LIMITING & CACHING
-# =============================================================================
-slowapi
-cachetools
+# Utilities
+pandas==2.2.0
+numpy==1.26.4
+python-dateutil==2.8.2
+pytz==2024.1
+tzdata==2025.2
 
-# =============================================================================
-# DATA PROCESSING & UTILITIES
-# =============================================================================
-pandas
-numpy
-python-dateutil
+# Logging & Monitoring
+structlog==24.1.0
+prometheus-client==0.22.1
 
-# =============================================================================
-# MONITORING & LOGGING
-# =============================================================================
-structlog
-prometheus-client
+# Testing
+pytest==8.0.0
+pytest-asyncio==0.23.5
+pytest-cov==6.2.1
 
-# =============================================================================
-# TESTING DEPENDENCIES
-# =============================================================================
-pytest
-pytest-asyncio
-pytest-cov
+# Linting & Dev Tools
+black==24.1.1
+isort==6.0.1
+flake8==6.1.0
+mypy==1.17.1
 
-# =============================================================================
-# DEVELOPMENT DEPENDENCIES
-# =============================================================================
-black
-isort
-flake8
-mypy
+# Prod & Perf
+gunicorn==23.0.0
+uvloop==0.21.0
+psutil==7.0.0
 
-# =============================================================================
-# PRODUCTION DEPENDENCIES
-# =============================================================================
-gunicorn
-uvloop
-psutil
+# AI & ML
+scikit-learn==1.4.0
+scipy==1.15.3
+google-cloud-storage==2.17.0
+sentence-transformers==2.7.0
 
-# =============================================================================
-# AI/ML DEPENDENCIES
-# =============================================================================
-scikit-learn
-scipy
+# RAG & Evaluation
+ragas==0.1.0
+evaluate==0.4.1
+datasets==2.19.0
 
-# =============================================================================
-# PAYMENT PROCESSING
-# =============================================================================
-stripe
-paypalrestsdk
+# Search & Vectors
+weaviate-client==3.25.3
+chromadb==0.4.24
+faiss-cpu==1.8.0
 
-# =============================================================================
-# EMAIL & NOTIFICATIONS
-# =============================================================================
-sendgrid
+# Cloud & Storage
+Pillow==11.3.0
+kaggle==1.7.4.5
 
-# =============================================================================
-# FILE STORAGE
-# =============================================================================
-boto3
-Pillow
+# Packaging (important for langchain-core compatibility)
+packaging==23.2
 
-# =============================================================================
-# VECTOR DATABASE
-# =============================================================================
-weaviate-client
+# Payments
+stripe==12.4.0
+paypalrestsdk==1.13.3
 
-# =============================================================================
-# KAGGLE API
-# =============================================================================
-kaggle
+# Notifications
+sendgrid==6.12.4
 
-# =============================================================================
-# OPTIONAL DEPENDENCIES
-# =============================================================================
-# Uncomment for additional features
-# elasticsearch
-# opensearch-py
-# grafana-api
+# Background Jobs
+google-cloud-pubsub==2.21.5
+google-cloud-tasks==2.16.5
+razorpay==1.4.2

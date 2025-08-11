@@ -4,12 +4,16 @@ Database configuration and session management for Bkmrk'd Bookstore
 """
 
 import os
+import logging
+from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
+
+logger = logging.getLogger(__name__)
 
 # Database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://apple@localhost:5432/bookstore")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bookstore_user:bookstore_pass@localhost:5432/bookstore_db")
 
 # Create engine with optimized settings
 engine = create_engine(
@@ -29,22 +33,36 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db():
-    """Get database session"""
+    """Get database session with proper error handling"""
+    db = SessionLocal()
     try:
-        db = SessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
+        yield db
     except Exception as e:
-        # Return a mock session if database is unavailable
-        from unittest.mock import Mock
-        mock_db = Mock()
-        yield mock_db
+        logger.error(f"Database session error: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+@contextmanager
+def get_db_context():
+    """Context manager for database sessions"""
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception as e:
+        logger.error(f"Database context error: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 def create_tables():
     """Create all tables"""
     try:
         Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
     except Exception as e:
+        logger.error(f"Failed to create database tables: {e}")
         raise Exception(f"Failed to create database tables: {e}") 

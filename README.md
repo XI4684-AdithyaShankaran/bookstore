@@ -20,7 +20,7 @@ This is a NextJS + FastAPI full-stack application for a modern online bookstore.
 - Redis 7+
 - Git
 
-### Local Development Setup (Without Docker)
+### Local Development Setup (Without Docker, WSL-ready)
 
 #### 1. Install System Dependencies
 
@@ -43,10 +43,10 @@ brew services start redis
 ```bash
 git clone <repository-url>
 cd bookstore
-cp env.development .env
+source ./env.local
 ```
 
-#### 3. Setup Databases
+#### 3. Start Databases
 
 **PostgreSQL:**
 ```bash
@@ -58,8 +58,9 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE bookstore_db TO books
 
 **Redis:**
 ```bash
-# Start Redis with password
-redis-server --port 6379 --daemonize yes --requirepass bookstore_redis_pass
+# Start Redis (WSL: use 6380 if 6379 is used by Windows)
+mkdir -p redis/data
+redis-server redis/redis.conf --port 6380
 ```
 
 #### 4. Setup Python Services
@@ -96,6 +97,12 @@ pip install -r requirements.txt
 cd ../..
 ```
 
+**Note:** If you encounter dependency conflicts (especially with redis or packaging), run:
+```bash
+pip install --upgrade packaging>=24.2.0
+pip install redis==3.5.4
+```
+
 #### 5. Setup Frontend Client
 ```bash
 cd client
@@ -110,17 +117,23 @@ cd ..
 # Terminal 1 - Backend Service (Main API)
 cd services/backend-service
 source venv/bin/activate
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+export REDIS_PORT=6380
+export REDIS_URL=redis://localhost:6380
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2 - AI Service (ML + Recommendations + Analytics)
 cd services/ai-service
 source venv/bin/activate
+export REDIS_PORT=6380
+export REDIS_URL=redis://localhost:6380
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 
 # Terminal 3 - ETL Service (Data Loading)
 cd services/etl-service
 source venv/bin/activate
 python app/main.py
+## Full reset (optional)
+# ETL_FULL_RESET=true python app/main.py
 ```
 
 **Start Frontend Client:**
@@ -232,16 +245,19 @@ lsof -i :5432  # Check PostgreSQL
 lsof -i :6379  # Check Redis
 ```
 
-### Environment Variables
+### Environment Variables (local)
 
-The project includes a `.env` file with default development values. Update it with your specific configuration:
+Use `env.local`.
 
 ```env
 # Required: Update these with your actual values
-SECRET_KEY=your-secret-key-here
-GEMINI_API_KEY=your-gemini-api-key
-KAGGLE_USERNAME=your-kaggle-username
-KAGGLE_KEY=your-kaggle-api-key
+SECRET_KEY=dev-secret-key
+GEMINI_API_KEY=
+KAGGLE_USERNAME=
+KAGGLE_KEY=
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+WEAVIATE_URL=http://localhost:8080
 
 # Optional: Update for production
 GOOGLE_CLIENT_ID=your-google-client-id
@@ -252,7 +268,9 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 - **Infinite Scroll Book Grid**: Pinterest-style book browsing
 - **Book Detail Views**: Detailed information about each book
-- **User Authentication**: JWT-based authentication with OAuth support
+- **User Authentication**: JWT-based authentication with OAuth support. Synthetic users loaded by ETL:
+  - email: `user_<kaggle_id>@example.com`
+  - password: `password123`
 - **AI Book Recommendations**: AI-powered book suggestions
 - **Custom Bookshelves**: User-created book collections
 - **Shopping Cart**: Add books to cart functionality
@@ -582,6 +600,34 @@ Below are all required environment variables for both local and cloud deployment
 ---
 
 **Set these variables in your `.env` file for local dev, or as Kubernetes secrets/configmaps for cloud. Never commit secrets to version control!**
+
+---
+
+## 🔧 Troubleshooting
+
+### Dependency Conflicts
+
+If you encounter dependency conflicts during installation, especially with redis or packaging:
+
+```bash
+# Fix redis version conflicts
+pip install redis==3.5.4
+pip install redis-py-cluster==2.1.3
+
+# Fix packaging version conflicts
+pip install --upgrade packaging>=24.2.0
+
+# Clean install (if issues persist)
+pip uninstall redis redis-py-cluster packaging -y
+pip install -r requirements.txt
+```
+
+### Common Issues
+
+1. **Redis Connection Errors**: Ensure Redis is running and accessible
+2. **Database Connection Errors**: Check PostgreSQL is running and credentials are correct
+3. **Port Conflicts**: Ensure ports 8000, 8003, 3000 are available
+4. **Permission Errors**: Use `sudo` for system-level operations on Linux/macOS
 
 ---
 

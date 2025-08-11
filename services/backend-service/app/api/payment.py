@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks,
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field, validator
 import stripe
-import paypalrestsdk
+import razorpay
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
@@ -38,17 +38,15 @@ logger = logging.getLogger(__name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 stripe.api_version = "2023-10-16"
 
-paypalrestsdk.configure({
-    "mode": os.getenv("PAYPAL_MODE", "sandbox"),
-    "client_id": os.getenv("PAYPAL_CLIENT_ID"),
-    "client_secret": os.getenv("PAYPAL_CLIENT_SECRET")
-})
+razorpay_client = None
+if os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET"):
+    razorpay_client = razorpay.Client(auth=(os.getenv("RAZORPAY_KEY_ID"), os.getenv("RAZORPAY_KEY_SECRET")))
 
 router = APIRouter(prefix="/api/payment", tags=["payment"])
 
 class PaymentProvider(str, Enum):
     STRIPE = "stripe"
-    PAYPAL = "paypal"
+    RAZORPAY = "razorpay"
     APPLE_PAY = "apple_pay"
     GOOGLE_PAY = "google_pay"
 
@@ -60,12 +58,12 @@ class PaymentMethodType(str, Enum):
 
 class PaymentIntentRequest(BaseModel):
     amount: Decimal = Field(..., ge=0.01, description="Amount in USD")
-    currency: str = Field(default="usd", pattern="^[a-z]{3}$")
+    currency: str = Field(default="inr", pattern="^[a-z]{3}$")
     books: List[Dict[str, Any]] = Field(..., min_items=1)
     customer_email: str = Field(..., pattern=r"^[^@]+@[^@]+\.[^@]+$")
     customer_name: str = Field(..., min_length=1, max_length=100)
     payment_method: PaymentMethodType = Field(default=PaymentMethodType.CARD)
-    provider: PaymentProvider = Field(default=PaymentProvider.STRIPE)
+    provider: PaymentProvider = Field(default=PaymentProvider.RAZORPAY)
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
     @validator('amount')
@@ -119,8 +117,8 @@ class PaymentService:
             # Create payment intent based on provider
             if request.provider == PaymentProvider.STRIPE:
                 return await self._create_stripe_payment_intent(request, payment)
-            elif request.provider == PaymentProvider.PAYPAL:
-                return await self._create_paypal_payment_intent(request, payment)
+            elif request.provider == PaymentProvider.RAZORPAY:
+                return await self._create_razorpay_order(request, payment)
             else:
                 raise HTTPException(status_code=400, detail="Unsupported payment provider")
                 
@@ -172,52 +170,44 @@ class PaymentService:
             logger.error(f"Stripe error: {e}")
             raise HTTPException(status_code=400, detail=str(e))
     
-    async def _create_paypal_payment_intent(
-        self, 
-        request: PaymentIntentRequest, 
+    async def _create_razorpay_order(
+        self,
+        request: PaymentIntentRequest,
         payment: Payment
     ) -> PaymentIntentResponse:
-        """Create PayPal payment intent"""
+        """Create Razorpay order (India)"""
+        if not razorpay_client:
+            raise HTTPException(status_code=500, detail="Razorpay not configured")
+
         try:
-            # Create PayPal payment
-            paypal_payment = paypalrestsdk.Payment({
-                "intent": "sale",
-                "payer": {
-                    "payment_method": "paypal"
-                },
-                "transactions": [{
-                    "amount": {
-                        "total": str(request.amount),
-                        "currency": request.currency.upper()
-                    },
-                    "description": f"Book purchase - {len(request.books)} books"
-                }],
-                "redirect_urls": {
-                    "return_url": f"{os.getenv('FRONTEND_URL')}/payment/success",
-                    "cancel_url": f"{os.getenv('FRONTEND_URL')}/payment/cancel"
+            # Amount in paise for INR
+            amt_paise = int(request.amount * 100)
+            order = razorpay_client.order.create({
+                "amount": amt_paise,
+                "currency": request.currency.lower(),
+                "payment_capture": 1,
+                "notes": {
+                    "payment_id": str(payment.id),
+                    "user_id": str(payment.user_id),
+                    "books": json.dumps(request.books)
                 }
             })
-            
-            if paypal_payment.create():
-                # Update payment record
-                payment.provider_payment_id = paypal_payment.id
-                self.db.commit()
-                
-                return PaymentIntentResponse(
-                    client_secret=paypal_payment.id,
-                    payment_intent_id=paypal_payment.id,
-                    provider=request.provider,
-                    amount=request.amount,
-                    currency=request.currency,
-                    status="created",
-                    created_at=datetime.now()
-                )
-            else:
-                raise HTTPException(status_code=400, detail="PayPal payment creation failed")
-                
+
+            payment.provider_payment_id = order.get("id")
+            self.db.commit()
+
+            return PaymentIntentResponse(
+                client_secret=order.get("id"),
+                payment_intent_id=order.get("id"),
+                provider=request.provider,
+                amount=request.amount,
+                currency=request.currency,
+                status=order.get("status", "created"),
+                created_at=datetime.now()
+            )
         except Exception as e:
-            logger.error(f"PayPal error: {e}")
-            raise HTTPException(status_code=400, detail="PayPal payment creation failed")
+            logger.error(f"Razorpay error: {e}")
+            raise HTTPException(status_code=400, detail="Razorpay order creation failed")
     
     async def _get_or_create_stripe_customer(self, email: str, name: str) -> stripe.Customer:
         """Get or create Stripe customer"""
@@ -260,8 +250,8 @@ class PaymentService:
             # Confirm payment based on provider
             if request.provider == PaymentProvider.STRIPE:
                 return await self._confirm_stripe_payment(payment, request)
-            elif request.provider == PaymentProvider.PAYPAL:
-                return await self._confirm_paypal_payment(payment, request)
+            elif request.provider == PaymentProvider.RAZORPAY:
+                return await self._confirm_razorpay_payment(payment, request)
             else:
                 raise HTTPException(status_code=400, detail="Unsupported payment provider")
                 
@@ -306,42 +296,51 @@ class PaymentService:
             logger.error(f"Stripe confirmation error: {e}")
             raise HTTPException(status_code=400, detail=str(e))
     
-    async def _confirm_paypal_payment(
-        self, 
-        payment: Payment, 
+    async def _confirm_razorpay_payment(
+        self,
+        payment: Payment,
         request: PaymentConfirmationRequest
     ) -> Dict[str, Any]:
-        """Confirm PayPal payment"""
+        """Confirm Razorpay payment (verify signature server-side)"""
         try:
-            # Execute PayPal payment
-            paypal_payment = paypalrestsdk.Payment.find(request.payment_intent_id)
-            
-            if paypal_payment.execute({"payer_id": request.order_id}):
-                # Update payment status
-                payment.status = PaymentStatus.COMPLETED
-                payment.completed_at = datetime.now()
-                self.db.commit()
-                
-                # Create order
-                order = await self._create_order_from_payment(payment)
-                
-                # Send notification
-                await self.notification_service.send_payment_confirmation(
-                    payment.user_id, order.id, payment.amount, self.db
-                )
-                
-                return {
-                    "status": "success",
-                    "message": "PayPal payment confirmed and order processed",
-                    "order_id": order.id,
-                    "payment_id": payment.id
-                }
-            else:
-                raise HTTPException(status_code=400, detail="PayPal payment execution failed")
-                
+            # For Razorpay, typically verification is via webhook with signature
+            # Here we assume front-end passes payment_id and signature in metadata
+            data = json.loads(payment.metadata or "{}")
+            razorpay_order_id = payment.provider_payment_id
+            razorpay_payment_id = data.get("razorpay_payment_id")
+            razorpay_signature = data.get("razorpay_signature")
+
+            if not (razorpay_order_id and razorpay_payment_id and razorpay_signature):
+                raise HTTPException(status_code=400, detail="Missing Razorpay verification data")
+
+            # Verify signature
+            generated_signature = hmac.new(
+                os.getenv("RAZORPAY_KEY_SECRET", "").encode(),
+                f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+
+            if generated_signature != razorpay_signature:
+                raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
+
+            payment.status = PaymentStatus.COMPLETED
+            payment.completed_at = datetime.now()
+            self.db.commit()
+
+            order = await self._create_order_from_payment(payment)
+            await self.notification_service.send_payment_confirmation(
+                payment.user_id, order.id, payment.amount, self.db
+            )
+
+            return {
+                "status": "success",
+                "message": "Razorpay payment confirmed and order processed",
+                "order_id": order.id,
+                "payment_id": payment.id
+            }
         except Exception as e:
-            logger.error(f"PayPal confirmation error: {e}")
-            raise HTTPException(status_code=400, detail="PayPal payment confirmation failed")
+            logger.error(f"Razorpay confirmation error: {e}")
+            raise HTTPException(status_code=400, detail="Razorpay payment confirmation failed")
     
     async def _create_order_from_payment(self, payment: Payment) -> Order:
         """Create order from successful payment"""

@@ -84,10 +84,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-bookstore_user}:${POSTGRES_PASSWORD:-bookstore_pass}@postgres:5432/${POSTGRES_DB:-bookstore_db}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-bookstore_redis_pass}@redis:6379/0
-      - WEAVIATE_URL=http://weaviate:8080
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - CACHE_TTL=${CACHE_TTL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -118,8 +117,6 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-bookstore_redis_pass}@redis:6379/0
       - WEAVIATE_URL=http://weaviate:8080
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - CACHE_TTL=${CACHE_TTL:-3600}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

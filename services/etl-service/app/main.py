@@ -30,7 +30,7 @@ def main():
         loader = KaggleDataLoader()
         
         # Run the data loading process
-        loader.run()
+        loader.run_full_load()
         
         logger.info("✅ ETL Service completed successfully")
         

@@ -9,9 +9,10 @@ import logging
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-import kaggle
+# import kaggle  # Moved this import inside methods
 from typing import List, Dict, Any
 import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,17 @@ class KaggleDataLoader:
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         
         logger.info(f"KaggleDataLoader initialized with dataset: {self.dataset_id}")
+    
+    def _resolve_books_data_dir(self) -> str:
+        """Resolve absolute path to repo-level books_data directory by walking up parents"""
+        current_path = Path(__file__).resolve()
+        for parent in [current_path] + list(current_path.parents):
+            candidate = parent / "books_data"
+            if candidate.exists() and candidate.is_dir():
+                return str(candidate)
+        # Fallback: assume repo root three levels up from this file
+        fallback = Path(__file__).resolve().parents[3] / "books_data"
+        return str(fallback)
     
     def setup_kaggle_credentials(self):
         """Setup Kaggle API credentials"""
@@ -56,20 +68,46 @@ key: {self.kaggle_key}"""
             logger.error(f"Error setting up Kaggle credentials: {e}")
             raise
     
-    def download_dataset(self) -> str:
-        """Download dataset from Kaggle"""
+    def _resolve_data_path(self) -> str:
+        """Use existing books_data if present, otherwise optionally download via Kaggle into books_data."""
+        local_dir = self._resolve_books_data_dir()
+        books_file = os.path.join(local_dir, "books.csv")
+        users_file = os.path.join(local_dir, "users.csv")
+        ratings_file = os.path.join(local_dir, "ratings.csv")
+
+        if os.path.exists(books_file) and os.path.exists(users_file) and os.path.exists(ratings_file):
+            logger.info(f"Using local dataset at {local_dir}")
+            return local_dir
+
+        # Fall back to Kaggle download only if credentials are provided
+        if self.kaggle_username and self.kaggle_key:
+            return self.download_dataset(local_dir)
+
+        raise FileNotFoundError(
+            "books_data folder with books.csv, users.csv, and ratings.csv not found and Kaggle credentials not provided."
+        )
+
+    def download_dataset(self, target_dir: str) -> str:
+        """Download dataset from Kaggle into target_dir/books_data"""
         try:
-            logger.info(f"Downloading dataset: {self.dataset_id}")
+            # Set up credentials first
+            self.setup_kaggle_credentials()
+            
+            # Import kaggle after credentials are set up
+            import kaggle
+            
+            Path(target_dir).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Downloading dataset: {self.dataset_id} into {target_dir}")
             
             # Download the dataset
             kaggle.api.dataset_download_files(
                 self.dataset_id,
-                path="./temp_data",
+                path=target_dir,
                 unzip=True
             )
             
             logger.info("Dataset downloaded successfully")
-            return "./temp_data"
+            return target_dir
             
         except Exception as e:
             logger.error(f"Error downloading dataset: {e}")
@@ -144,7 +182,9 @@ key: {self.kaggle_key}"""
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_genre ON books(genre)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_rating ON books(rating)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_author ON books(author)"))
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ratings_user_book ON ratings(user_id, book_id)"))
+                # Ensure unique key for upserts
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_books_isbn ON books(isbn)"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ratings_user_book ON ratings(user_id, book_id)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_books_user_book ON user_books(user_id, book_id)"))
                 
                 conn.commit()
@@ -153,6 +193,21 @@ key: {self.kaggle_key}"""
             
         except Exception as e:
             logger.error(f"Error creating tables: {e}")
+            raise
+
+    def reset_database(self):
+        """Dangerous: delete existing data for a full clean load."""
+        try:
+            with self.engine.connect() as conn:
+                # Order matters due to FKs
+                conn.execute(text("DELETE FROM ratings"))
+                conn.execute(text("DELETE FROM user_books"))
+                conn.execute(text("DELETE FROM books"))
+                conn.execute(text("DELETE FROM users"))
+                conn.commit()
+            logger.info("Database reset completed (ratings, user_books, books, users cleared)")
+        except Exception as e:
+            logger.error(f"Error resetting database: {e}")
             raise
     
     def load_books_data(self, data_path: str):
@@ -164,38 +219,88 @@ key: {self.kaggle_key}"""
                 raise FileNotFoundError(f"Books file not found: {books_file}")
             
             logger.info("Loading books data...")
-            books_df = pd.read_csv(books_file)
+            
+            # Read CSV manually to handle quoted fields with semicolons
+            import csv
+            
+            books_data = []
+            encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(books_file, 'r', encoding=encoding) as file:
+                        reader = csv.DictReader(file, delimiter=';', quotechar='"')
+                        books_data = list(reader)
+                        logger.info(f"Successfully read books.csv with {encoding} encoding")
+                        break
+                except UnicodeDecodeError:
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to read with {encoding}: {e}")
+                    continue
+            
+            if not books_data:
+                raise ValueError("Could not read books.csv with any supported encoding")
+            
+            # Convert to DataFrame for easier processing
+            books_df = pd.DataFrame(books_data)
             
             # Clean and prepare data
             books_df = self._clean_books_data(books_df)
             
             # Load into database
             with self.SessionLocal() as session:
-                # Clear existing data
-                session.execute(text("DELETE FROM books"))
-                
-                # Insert new data
+                # Upsert books to avoid duplicates
+                total = len(books_df)
+                processed = 0
                 for _, row in books_df.iterrows():
-                    book_data = {
-                        "title": row.get("title", ""),
-                        "author": row.get("author", ""),
-                        "description": row.get("description", ""),
-                        "genre": row.get("genre", ""),
-                        "rating": float(row.get("rating", 0)),
-                        "price": float(row.get("price", 0)),
-                        "publication_date": pd.to_datetime(row.get("publication_date")).date() if pd.notna(row.get("publication_date")) else None,
-                        "isbn": str(row.get("isbn", "")),
-                        "language": row.get("language", "English"),
-                        "pages": int(row.get("pages", 0)) if pd.notna(row.get("pages")) else None,
-                        "publisher": row.get("publisher", "")
-                    }
+                    # Handle publication date safely
+                    publication_date = None
+                    try:
+                        year = row.get("Year-Of-Publication")
+                        if year and str(year).isdigit() and int(year) > 1900 and int(year) <= 2024:
+                            publication_date = pd.to_datetime(f"{year}-01-01").date()
+                    except:
+                        publication_date = None
                     
+                    book_data = {
+                        "title": row.get("Book-Title", ""),
+                        "author": row.get("Book-Author", ""),
+                        "description": "",  # Not available in this dataset
+                        "genre": "General",  # Not available in this dataset
+                        "price": 0.0,  # Not available in this dataset
+                        "rating": 0.0,  # Not available in this dataset
+                        "image_url": row.get("Image-URL-L", ""),
+                        "isbn": str(row.get("ISBN", "")),
+                        "publication_date": publication_date,
+                        "page_count": None,  # Not available in this dataset
+                        "language": "English"  # Default
+                    }
+
+                    # Skip if ISBN missing
+                    if not book_data["isbn"]:
+                        continue
+
                     session.execute(text("""
-                        INSERT INTO books (title, author, description, genre, rating, price, 
-                                         publication_date, isbn, language, pages, publisher)
-                        VALUES (:title, :author, :description, :genre, :rating, :price,
-                                :publication_date, :isbn, :language, :pages, :publisher)
+                        INSERT INTO books (title, author, description, genre, price, rating,
+                                           image_url, isbn, publication_date, page_count, language)
+                        VALUES (:title, :author, :description, :genre, :price, :rating,
+                                :image_url, :isbn, :publication_date, :page_count, :language)
+                        ON CONFLICT (isbn) DO UPDATE SET
+                            title = EXCLUDED.title,
+                            author = EXCLUDED.author,
+                            description = EXCLUDED.description,
+                            genre = EXCLUDED.genre,
+                            price = EXCLUDED.price,
+                            rating = EXCLUDED.rating,
+                            image_url = EXCLUDED.image_url,
+                            publication_date = EXCLUDED.publication_date,
+                            page_count = EXCLUDED.page_count,
+                            language = EXCLUDED.language
                     """), book_data)
+                    processed += 1
+                    if processed % 5000 == 0:
+                        logger.info(f"Processed books: {processed}/{total}")
                 
                 session.commit()
             
@@ -215,28 +320,63 @@ key: {self.kaggle_key}"""
                 return
             
             logger.info("Loading users data...")
-            users_df = pd.read_csv(users_file)
+            
+            # Read CSV manually to handle quoted fields with semicolons
+            import csv
+            
+            users_data = []
+            encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(users_file, 'r', encoding=encoding) as file:
+                        reader = csv.DictReader(file, delimiter=';', quotechar='"')
+                        users_data = list(reader)
+                        logger.info(f"Successfully read users.csv with {encoding} encoding")
+                        break
+                except UnicodeDecodeError:
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to read with {encoding}: {e}")
+                    continue
+            
+            if not users_data:
+                logger.warning("Could not read users.csv with any supported encoding")
+                return
+            
+            # Convert to DataFrame for easier processing
+            users_df = pd.DataFrame(users_data)
             
             # Clean and prepare data
             users_df = self._clean_users_data(users_df)
             
             # Load into database
             with self.SessionLocal() as session:
-                # Clear existing data
-                session.execute(text("DELETE FROM users"))
-                
-                # Insert new data
+                # Upsert users by unique email
+                total = len(users_df)
+                processed = 0
                 for _, row in users_df.iterrows():
                     user_data = {
-                        "username": f"user_{row.get('id', '')}",
-                        "email": f"user_{row.get('id', '')}@example.com",
-                        "full_name": f"User {row.get('id', '')}"
+                        "username": f"user_{row.get('User-ID', '')}",
+                        "email": f"user_{row.get('User-ID', '')}@example.com",
+                        "hashed_password": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4tbQJQhK8e",  # Default password: password123
+                        "full_name": f"User {row.get('User-ID', '')}",
+                        "is_active": True,
+                        "is_superuser": False
                     }
                     
                     session.execute(text("""
-                        INSERT INTO users (username, email, full_name)
-                        VALUES (:username, :email, :full_name)
+                        INSERT INTO users (username, email, hashed_password, full_name, is_active, is_superuser)
+                        VALUES (:username, :email, :hashed_password, :full_name, :is_active, :is_superuser)
+                        ON CONFLICT (email) DO UPDATE SET
+                            username = EXCLUDED.username,
+                            full_name = EXCLUDED.full_name,
+                            is_active = EXCLUDED.is_active,
+                            is_superuser = EXCLUDED.is_superuser
                     """), user_data)
+                    processed += 1
+                    if processed % 5000 == 0:
+                        logger.info(f"Processed users: {processed}/{total}")
                 
                 session.commit()
             
@@ -256,39 +396,78 @@ key: {self.kaggle_key}"""
                 return
             
             logger.info("Loading ratings data...")
-            ratings_df = pd.read_csv(ratings_file)
+            
+            # Read CSV manually to handle quoted fields with semicolons
+            import csv
+            
+            ratings_data = []
+            encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(ratings_file, 'r', encoding=encoding) as file:
+                        reader = csv.DictReader(file, delimiter=';', quotechar='"')
+                        ratings_data = list(reader)
+                        logger.info(f"Successfully read ratings.csv with {encoding} encoding")
+                        break
+                except UnicodeDecodeError:
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to read with {encoding}: {e}")
+                    continue
+            
+            if not ratings_data:
+                logger.warning("Could not read ratings.csv with any supported encoding")
+                return
+            
+            # Convert to DataFrame for easier processing
+            ratings_df = pd.DataFrame(ratings_data)
             
             # Clean and prepare data
             ratings_df = self._clean_ratings_data(ratings_df)
             
+            # Create ISBN to book_id mapping and user email->id mapping
+            with self.SessionLocal() as session:
+                result = session.execute(text("SELECT id, isbn FROM books"))
+                isbn_to_book_id = {str(row[1]): int(row[0]) for row in result if row[1]}
+                user_rows = session.execute(text("SELECT id, email FROM users"))
+                email_to_user_id = {str(row[1]): int(row[0]) for row in user_rows if row[1]}
+            
             # Load into database
             with self.SessionLocal() as session:
-                # Clear existing data
-                session.execute(text("DELETE FROM ratings"))
-                
-                # Insert new data in batches
+                # Upsert ratings in batches
                 batch_size = 1000
+                valid_ratings = 0
+                
                 for i in range(0, len(ratings_df), batch_size):
                     batch = ratings_df.iloc[i:i+batch_size]
                     
                     for _, row in batch.iterrows():
-                        rating_data = {
-                            "user_id": int(row.get("user_id", 0)),
-                            "book_id": int(row.get("book_id", 0)),
-                            "rating": int(row.get("rating", 0))
-                        }
-                        
-                        session.execute(text("""
-                            INSERT INTO ratings (user_id, book_id, rating)
-                            VALUES (:user_id, :book_id, :rating)
-                            ON CONFLICT (user_id, book_id) DO UPDATE SET
-                            rating = EXCLUDED.rating
-                        """), rating_data)
+                        isbn = str(row.get("ISBN", ""))
+                        if isbn in isbn_to_book_id:
+                            # Map Kaggle User-ID to our user.id via email
+                            kaggle_uid = str(int(row.get("User-ID", 0)))
+                            user_email = f"user_{kaggle_uid}@example.com"
+                            user_id_val = email_to_user_id.get(user_email)
+                            if not user_id_val:
+                                continue
+                            rating_data = {
+                                "user_id": user_id_val,
+                                "book_id": isbn_to_book_id[isbn],
+                                "rating": float(row.get("Book-Rating", 0))
+                            }
+                            session.execute(text("""
+                                INSERT INTO ratings (user_id, book_id, rating)
+                                VALUES (:user_id, :book_id, :rating)
+                                ON CONFLICT (user_id, book_id) DO UPDATE SET
+                                    rating = EXCLUDED.rating
+                            """), rating_data)
+                            valid_ratings += 1
                     
                     session.commit()
                     logger.info(f"Processed ratings batch {i//batch_size + 1}")
             
-            logger.info(f"Loaded {len(ratings_df)} ratings into database")
+            logger.info(f"Loaded {valid_ratings} valid ratings into database")
             
         except Exception as e:
             logger.error(f"Error loading ratings data: {e}")
@@ -296,76 +475,65 @@ key: {self.kaggle_key}"""
     
     def _clean_books_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean and prepare books data"""
-        # Remove duplicates
-        df = df.drop_duplicates(subset=['title', 'author'])
+        # Remove duplicates and ensure a copy to avoid SettingWithCopyWarning
+        df = df.drop_duplicates(subset=['Book-Title', 'Book-Author']).copy()
         
         # Handle missing values
-        df['title'] = df['title'].fillna('Unknown Title')
-        df['author'] = df['author'].fillna('Unknown Author')
-        df['genre'] = df['genre'].fillna('General')
-        df['rating'] = df['rating'].fillna(0.0)
-        df['price'] = df['price'].fillna(0.0)
+        df['Book-Title'] = df['Book-Title'].fillna('Unknown Title')
+        df['Book-Author'] = df['Book-Author'].fillna('Unknown Author')
+        df['Image-URL-L'] = df['Image-URL-L'].fillna('')
         
         # Clean text fields
-        df['title'] = df['title'].str.strip()
-        df['author'] = df['author'].str.strip()
-        df['genre'] = df['genre'].str.strip()
+        df['Book-Title'] = df['Book-Title'].str.strip()
+        df['Book-Author'] = df['Book-Author'].str.strip()
         
         # Limit text lengths
-        df['title'] = df['title'].str[:500]
-        df['author'] = df['author'].str[:200]
-        df['genre'] = df['genre'].str[:100]
+        df['Book-Title'] = df['Book-Title'].str[:500]
+        df['Book-Author'] = df['Book-Author'].str[:200]
         
         return df
     
     def _clean_users_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean and prepare users data"""
-        # Remove duplicates
-        df = df.drop_duplicates(subset=['id'])
+        # Remove duplicates and ensure a copy to avoid SettingWithCopyWarning
+        df = df.drop_duplicates(subset=['User-ID']).copy()
         
         # Handle missing values
-        df['id'] = df['id'].fillna(0)
+        df['User-ID'] = df['User-ID'].fillna(0)
         
         return df
     
     def _clean_ratings_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean and prepare ratings data"""
-        # Remove duplicates
-        df = df.drop_duplicates(subset=['user_id', 'book_id'])
-        
-        # Handle missing values
-        df['user_id'] = df['user_id'].fillna(0)
-        df['book_id'] = df['book_id'].fillna(0)
-        df['rating'] = df['rating'].fillna(0)
-        
-        # Filter valid ratings
-        df = df[(df['rating'] >= 1) & (df['rating'] <= 5)]
-        
+        # Remove duplicates and ensure a copy to avoid SettingWithCopyWarning
+        df = df.drop_duplicates(subset=['User-ID', 'ISBN']).copy()
+
+        # Normalize types and handle missing values
+        df['User-ID'] = pd.to_numeric(df['User-ID'], errors='coerce').fillna(0).astype(int)
+        df['ISBN'] = df['ISBN'].fillna('').astype(str).str.strip()
+        # Ratings often come as strings; coerce to numeric and drop invalids
+        df['Book-Rating'] = pd.to_numeric(df['Book-Rating'], errors='coerce')
+
+        # Filter valid ratings 1..5 and return a copy
+        df = df[df['Book-Rating'].between(1, 5, inclusive='both')].copy()
+
         return df
     
     def run_full_load(self):
         """Run complete data loading process"""
         try:
             logger.info("Starting Kaggle data loading process...")
-            
-            # Setup Kaggle credentials
-            self.setup_kaggle_credentials()
-            
-            # Create database tables
-            self.create_tables()
-            
-            # Download dataset
-            data_path = self.download_dataset()
+            # Resolve data path (prefer local books_data)
+            data_path = self._resolve_data_path()
+            # Reset if explicitly requested (one-time full reload)
+            if os.getenv("ETL_FULL_RESET", "").lower() in ("1", "true", "yes"): 
+                self.reset_database()
             
             # Load data
             self.load_books_data(data_path)
             self.load_users_data(data_path)
             self.load_ratings_data(data_path)
-            
-            # Cleanup
-            import shutil
-            if os.path.exists(data_path):
-                shutil.rmtree(data_path)
+            # Do not delete books_data; keep local CSVs for reuse
             
             logger.info("Data loading process completed successfully!")
             
