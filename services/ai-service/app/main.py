@@ -5,6 +5,7 @@ Full production implementation with real data processing
 """
 
 import os
+import warnings
 import logging
 import json
 import time
@@ -39,6 +40,15 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Suppress third-party deprecation warnings without affecting errors
+try:
+    from pydantic.warnings import PydanticDeprecatedSince20
+    warnings.filterwarnings("ignore", category=PydanticDeprecatedSince20)
+except Exception:
+    warnings.filterwarnings("ignore", message="Pydantic V1 style `@validator` validators are deprecated")
+# Weaviate client v3 deprecation notice (safe to ignore until we migrate to v4)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="weaviate")
 
 # Environment variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
