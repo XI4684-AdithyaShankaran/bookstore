@@ -8,6 +8,7 @@ import asyncio
 import logging
 import httpx
 from typing import List, Dict, Any, Optional
+import os
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, and_
 from fastapi import HTTPException, status
@@ -15,7 +16,7 @@ from fastapi import HTTPException, status
 from app.models.book import Book
 from app.models.user import User
 from app.models.bookshelf import Bookshelf, BookshelfBook
-from app.models.cart import Cart
+from app.models.cart import CartItem
 from app.models.wishlist import WishlistItem
 from app.models.order import Order, OrderItem
 
@@ -26,7 +27,8 @@ class RecommendationService:
     
     def __init__(self, db: Session):
         self.db = db
-        self.ai_service_url = "http://ai-service:8003"
+        # Use env var for local vs container networking; default to localhost for WSL/local runs
+        self.ai_service_url = os.getenv("AI_SERVICE_URL", "http://localhost:8003")
         self.cache = {}
     
     async def get_user_recommendations(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
@@ -133,7 +135,11 @@ class RecommendationService:
         """Get recommendations based on user's cart"""
         try:
             # Get cart items
-            cart_items = self.db.query(Cart).filter(Cart.user_id == user_id).all()
+            cart_items = (
+                self.db.query(CartItem)
+                .filter(CartItem.user_id == user_id)
+                .all()
+            )
             
             if not cart_items:
                 return await self._get_popular_books(limit)

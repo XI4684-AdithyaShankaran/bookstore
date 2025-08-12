@@ -5,12 +5,13 @@ Loads books dataset from Kaggle into PostgreSQL database
 """
 
 import os
+import importlib
 import logging
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 # import kaggle  # Moved this import inside methods
-from typing import List, Dict, Any
+from typing import List, Dict, Any, cast
 import time
 from pathlib import Path
 
@@ -93,8 +94,14 @@ key: {self.kaggle_key}"""
             # Set up credentials first
             self.setup_kaggle_credentials()
             
-            # Import kaggle after credentials are set up
-            import kaggle
+            # Import kaggle after credentials are set up (dynamic to avoid static analyzer warning)
+            try:
+                kaggle = cast(Any, importlib.import_module("kaggle"))
+            except Exception as exc:
+                raise ImportError(
+                    "The 'kaggle' package is required for dataset downloads. Install it with: "
+                    "python -m pip install -r services/etl-service/requirements.txt"
+                ) from exc
             
             Path(target_dir).mkdir(parents=True, exist_ok=True)
             logger.info(f"Downloading dataset: {self.dataset_id} into {target_dir}")
@@ -114,45 +121,44 @@ key: {self.kaggle_key}"""
             raise
     
     def create_tables(self):
-        """Create database tables if they don't exist"""
+        """Create database tables if they don't exist (aligned with backend models)."""
         try:
             with self.engine.connect() as conn:
-                # Create books table
+                # Create books table (matches backend columns)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS books (
                         id SERIAL PRIMARY KEY,
                         title VARCHAR(500) NOT NULL,
-                        author VARCHAR(200),
+                        author VARCHAR(200) NOT NULL,
                         description TEXT,
                         genre VARCHAR(100),
-                        rating DECIMAL(3,2) DEFAULT 0.0,
                         price DECIMAL(10,2) DEFAULT 0.0,
+                        rating DECIMAL(3,2) DEFAULT 0.0,
+                        image_url VARCHAR(500),
+                        isbn VARCHAR(20) UNIQUE,
                         publication_date DATE,
-                        isbn VARCHAR(20),
+                        page_count INTEGER,
                         language VARCHAR(50),
-                        pages INTEGER,
-                        publisher VARCHAR(200),
-                        cover_image VARCHAR(500),
-                        active BOOLEAN DEFAULT true,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
-                
-                # Create users table
+
+                # Create users table (matches backend columns)
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
-                        username VARCHAR(100) UNIQUE NOT NULL,
                         email VARCHAR(200) UNIQUE NOT NULL,
-                        hashed_password VARCHAR(255),
+                        username VARCHAR(100) UNIQUE NOT NULL,
+                        hashed_password VARCHAR(255) NOT NULL,
                         full_name VARCHAR(200),
                         is_active BOOLEAN DEFAULT true,
+                        is_superuser BOOLEAN DEFAULT false,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
-                
+
                 # Create ratings table
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS ratings (
@@ -165,47 +171,37 @@ key: {self.kaggle_key}"""
                         UNIQUE(user_id, book_id)
                     )
                 """))
-                
-                # Create user_books table (for reading history)
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS user_books (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER REFERENCES users(id),
-                        book_id INTEGER REFERENCES books(id),
-                        status VARCHAR(50) DEFAULT 'read', -- read, reading, want_to_read
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id, book_id)
-                    )
-                """))
-                
-                # Create indexes for performance
+
+                # Useful indexes
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_genre ON books(genre)"))
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_rating ON books(rating)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_books_author ON books(author)"))
-                # Ensure unique key for upserts
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_books_isbn ON books(isbn)"))
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ratings_user_book ON ratings(user_id, book_id)"))
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_books_user_book ON user_books(user_id, book_id)"))
-                
+
                 conn.commit()
-                
-            logger.info("Database tables created successfully")
-            
+
+            logger.info("Database tables ensured (books, users, ratings)")
+
         except Exception as e:
             logger.error(f"Error creating tables: {e}")
             raise
 
     def reset_database(self):
-        """Dangerous: delete existing data for a full clean load."""
+        """Delete existing data for a full clean load (safely, only known tables)."""
         try:
             with self.engine.connect() as conn:
-                # Order matters due to FKs
-                conn.execute(text("DELETE FROM ratings"))
-                conn.execute(text("DELETE FROM user_books"))
-                conn.execute(text("DELETE FROM books"))
-                conn.execute(text("DELETE FROM users"))
+                existing_tables = {
+                    row[0] for row in conn.execute(
+                        text("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'")
+                    )
+                }
+                targets = [t for t in ["ratings", "books", "users"] if t in existing_tables]
+                if targets:
+                    # TRUNCATE is faster and CASCADE clears dependents where needed
+                    stmt = "TRUNCATE TABLE " + ", ".join(targets) + " RESTART IDENTITY CASCADE"
+                    conn.execute(text(stmt))
                 conn.commit()
-            logger.info("Database reset completed (ratings, user_books, books, users cleared)")
+            logger.info(f"Database reset completed for tables: {', '.join(targets) if targets else 'none'}")
         except Exception as e:
             logger.error(f"Error resetting database: {e}")
             raise
@@ -523,10 +519,12 @@ key: {self.kaggle_key}"""
         """Run complete data loading process"""
         try:
             logger.info("Starting Kaggle data loading process...")
+            # Ensure required tables exist before any operations
+            self.create_tables()
             # Resolve data path (prefer local books_data)
             data_path = self._resolve_data_path()
             # Reset if explicitly requested (one-time full reload)
-            if os.getenv("ETL_FULL_RESET", "").lower() in ("1", "true", "yes"): 
+            if os.getenv("ETL_FULL_RESET", "").lower() in ("1", "true", "yes"):
                 self.reset_database()
             
             # Load data

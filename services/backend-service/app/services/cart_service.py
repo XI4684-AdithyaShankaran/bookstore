@@ -8,14 +8,14 @@ import logging
 import time
 import threading
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session, joinedload, load_only
-from sqlalchemy import and_, or_, func, desc, asc
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, func
 from fastapi import HTTPException, status
 from decimal import Decimal
 
 from app.models.user import User
 from app.models.book import Book
-from app.models.cart import Cart, CartItem
+from app.models.cart import CartItem
 from app.schemas.cart import CartItemCreate, CartItemUpdate, CartResponse
 from app.services.book_service import BookService
 
@@ -82,48 +82,43 @@ class CartService:
                 return cached_result
             
             # Query with essential columns
-            cart = self.db.query(Cart).options(
-                joinedload(Cart.items).joinedload(CartItem.book).load_only(
-                    Book.id, Book.title, Book.author, Book.price, Book.cover_image
-                )
-            ).filter(Cart.user_id == user_id).first()
-            
-            if not cart:
-                # Create new cart
-                cart = Cart(user_id=user_id)
-                self.db.add(cart)
-                self.db.commit()
-                self.db.refresh(cart)
+            # Load user's cart items and their books
+            items = (
+                self.db.query(CartItem)
+                .options(joinedload(CartItem.book))
+                .filter(CartItem.user_id == user_id)
+                .all()
+            )
             
             # Calculate totals efficiently
-            total_items = sum(item.quantity for item in cart.items)
+            total_items = sum(item.quantity for item in items)
             total_amount = sum(
-                item.quantity * item.book.price for item in cart.items
+                (item.quantity * (item.book.price or 0)) for item in items if item.book
             )
             
             result = CartResponse(
-                id=cart.id,
-                user_id=cart.user_id,
+                id=user_id,
+                user_id=user_id,
                 items=[
                     {
                         "id": item.id,
                         "book_id": item.book_id,
                         "quantity": item.quantity,
-                        "price": float(item.book.price),
+                        "price": float(item.book.price or 0),
                         "book": {
                             "id": item.book.id,
                             "title": item.book.title,
                             "author": item.book.author,
-                            "price": float(item.book.price),
-                            "cover_image": item.book.cover_image
+                            "price": float(item.book.price or 0),
+                            "cover_image": item.book.image_url
                         }
                     }
-                    for item in cart.items
+                    for item in items if item.book
                 ],
                 total_items=total_items,
                 total_amount=float(total_amount),
-                created_at=cart.created_at,
-                updated_at=cart.updated_at
+                created_at=min((i.created_at for i in items), default=None),
+                updated_at=max((i.updated_at for i in items if i.updated_at), default=None),
             )
             
             return self._set_cached(cache_key, result)
@@ -158,20 +153,14 @@ class CartService:
                 )
             
             # Get or create cart
-            cart = self.db.query(Cart).filter(Cart.user_id == user_id).first()
-            if not cart:
-                cart = Cart(user_id=user_id)
-                self.db.add(cart)
-                self.db.commit()
-                self.db.refresh(cart)
+            # No Cart table; operate directly on CartItem keyed by user_id
             
             # Check if item already exists
-            existing_item = self.db.query(CartItem).filter(
-                and_(
-                    CartItem.cart_id == cart.id,
-                    CartItem.book_id == book_id
-                )
-            ).first()
+            existing_item = (
+                self.db.query(CartItem)
+                .filter(and_(CartItem.user_id == user_id, CartItem.book_id == book_id))
+                .first()
+            )
             
             if existing_item:
                 # Update quantity
@@ -179,11 +168,7 @@ class CartService:
                 self.db.commit()
             else:
                 # Create new item
-                cart_item = CartItem(
-                    cart_id=cart.id,
-                    book_id=book_id,
-                    quantity=quantity
-                )
+                cart_item = CartItem(user_id=user_id, book_id=book_id, quantity=quantity)
                 self.db.add(cart_item)
                 self.db.commit()
             
@@ -217,12 +202,11 @@ class CartService:
                 )
             
             # Get cart item
-            cart_item = self.db.query(CartItem).join(Cart).filter(
-                and_(
-                    CartItem.id == item_id,
-                    Cart.user_id == user_id
-                )
-            ).first()
+            cart_item = (
+                self.db.query(CartItem)
+                .filter(and_(CartItem.id == item_id, CartItem.user_id == user_id))
+                .first()
+            )
             
             if not cart_item:
                 raise HTTPException(
@@ -257,12 +241,11 @@ class CartService:
         """Remove item from cart with validation"""
         try:
             # Get cart item
-            cart_item = self.db.query(CartItem).join(Cart).filter(
-                and_(
-                    CartItem.id == item_id,
-                    Cart.user_id == user_id
-                )
-            ).first()
+            cart_item = (
+                self.db.query(CartItem)
+                .filter(and_(CartItem.id == item_id, CartItem.user_id == user_id))
+                .first()
+            )
             
             if not cart_item:
                 raise HTTPException(
@@ -292,13 +275,8 @@ class CartService:
     async def clear_cart(self, user_id: int) -> CartResponse:
         """Clear all items from cart"""
         try:
-            # Get cart
-            cart = self.db.query(Cart).filter(Cart.user_id == user_id).first()
-            if not cart:
-                return await self.get_user_cart(user_id)
-            
-            # Remove all items
-            self.db.query(CartItem).filter(CartItem.cart_id == cart.id).delete()
+            # Remove all items for this user
+            self.db.query(CartItem).filter(CartItem.user_id == user_id).delete()
             self.db.commit()
             
             # Clear cache
@@ -323,12 +301,15 @@ class CartService:
                 return cached_result
             
             # Summary query
-            result = self.db.query(
-                func.count(CartItem.id).label('total_items'),
-                func.sum(CartItem.quantity * Book.price).label('total_amount')
-            ).join(Cart).join(Book).filter(
-                Cart.user_id == user_id
-            ).first()
+            result = (
+                self.db.query(
+                    func.count(CartItem.id).label('total_items'),
+                    func.sum(CartItem.quantity * (Book.price)).label('total_amount'),
+                )
+                .join(Book, CartItem.book_id == Book.id)
+                .filter(CartItem.user_id == user_id)
+                .first()
+            )
             
             summary = {
                 "total_items": result.total_items or 0,

@@ -169,7 +169,7 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
       setError('Failed to start book stream');
       setLoading(false);
     }
-  }, [buildStreamUrl, search, genre, author, stopStream, loading]);
+  }, [buildStreamUrl, stopStream]);
 
   const resetStream = useCallback(() => {
     stopStream();
@@ -182,14 +182,12 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
   // Auto-start stream if enabled - only on client side to prevent hydration issues
   useEffect(() => {
     if (autoStart && typeof window !== 'undefined') {
-      // Small delay to ensure component is fully mounted
       const timer = setTimeout(() => {
         startStream();
       }, 100);
-
       return () => clearTimeout(timer);
     }
-  }, [autoStart, startStream]);
+  }, [autoStart]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -200,11 +198,12 @@ export const useBookStream = (options: UseBookStreamOptions = {}): UseBookStream
 
   // Restart stream when search parameters change
   useEffect(() => {
-    if (loading) {
-      resetStream();
-      startStream();
-    }
-  }, [search, genre, author, loading, resetStream, startStream]); // Include all dependencies
+    if (!autoStart) return;
+    resetStream();
+    startStream();
+    // Intentionally exclude function deps to avoid identity-triggered loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, genre, author, autoStart]);
 
   return {
     books,

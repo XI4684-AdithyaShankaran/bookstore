@@ -256,6 +256,52 @@ async def get_books(
         logger.error(f"❌ Failed to retrieve books: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve books: {str(e)}")
 
+# Streaming Books Endpoint - Register static path before dynamic '{book_id}' to avoid 422 on '/stream'
+@app.get("/api/books/stream")
+async def stream_books(
+    search: str = None,
+    genre: str = None,
+    author: str = None,
+    batch_size: int = 5,
+    delay: float = 0.1,
+    db: Session = Depends(get_db)
+):
+    """Stream books in real-time with Server-Sent Events - FIXED ORDER"""
+    try:
+        book_service = BookService(db)
+        books_data = book_service.get_books(
+            skip=0,
+            limit=batch_size,
+            search=search,
+            genre=genre
+        )
+
+        books = books_data.get('books', [])
+        book_list = []
+
+        for book in books:
+            book_dict = {
+                'id': book.id,
+                'title': book.title,
+                'author': book.author,
+                'genre': book.genre,
+                'rating': float(book.rating) if book.rating else 0,
+                'price': float(book.price) if book.price else 0,
+                'image_url': book.image_url,
+                'description': book.description
+            }
+            book_list.append(book_dict)
+
+        return {
+            "type": "books_batch",
+            "data": book_list,
+            "total": len(book_list),
+            "message": "Books retrieved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error in stream_books: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @app.get("/api/books/{book_id}")
 async def get_book(book_id: int, db: Session = Depends(get_db)):
     """Get a specific book with logging"""
@@ -276,53 +322,7 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
         logger.error(f"❌ Failed to retrieve book {book_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve book: {str(e)}")
 
-# Streaming Books Endpoint - Temporarily disabled due to generator issues
-@app.get("/api/books/stream")
-async def stream_books(
-    search: str = None,
-    genre: str = None,
-    author: str = None,
-    batch_size: int = 5,
-    delay: float = 0.1,
-    db: Session = Depends(get_db)
-):
-    """Stream books in real-time with Server-Sent Events - FIXED VERSION"""
-    
-    try:
-        # Get books data
-        book_service = BookService(db)
-        books_data = book_service.get_books(
-            skip=0, 
-            limit=batch_size, 
-            search=search, 
-            genre=genre
-        )
-        
-        books = books_data.get('books', [])
-        book_list = []
-        
-        for book in books:
-            book_dict = {
-                'id': book.id,
-                'title': book.title,
-                'author': book.author,
-                'genre': book.genre,
-                'rating': float(book.rating) if book.rating else 0,
-                'price': float(book.price) if book.price else 0,
-                'image_url': book.image_url,
-                'description': book.description
-            }
-            book_list.append(book_dict)
-        
-        return {
-            "type": "books_batch",
-            "data": book_list,
-            "total": len(book_list),
-            "message": "Books retrieved successfully"
-        }
-    except Exception as e:
-        logger.error(f"Error in stream_books: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+# (Old duplicate definition removed to prevent routing ambiguity)
 
 # Streaming Search Endpoint - Fixed version
 @app.get("/api/search/stream")
