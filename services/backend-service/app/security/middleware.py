@@ -493,14 +493,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             'X-Content-Type-Options': 'nosniff',
             'X-XSS-Protection': '1; mode=block',
             'Referrer-Policy': 'no-referrer-when-downgrade',
-            # No COEP/COOP/CORP here; allow external fonts/css used by Swagger UI
-            'Content-Security-Policy': \
-                "default-src 'self' data: blob:; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                "font-src 'self' https://fonts.gstatic.com data:; "
-                "img-src 'self' data: blob:; "
-                "connect-src 'self'",
+            # Intentionally no CSP/COEP/COOP/CORP for docs to avoid blank UI
         }
     
     async def dispatch(self, request: Request, call_next):
