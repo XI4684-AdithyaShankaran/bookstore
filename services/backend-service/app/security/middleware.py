@@ -470,7 +470,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI):
         super().__init__(app)
         
-        # Security headers with environment-aware values
+        # Security headers with environment-aware values (strict default)
         self.headers = {
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
@@ -487,14 +487,29 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             'Cross-Origin-Opener-Policy': 'same-origin',
             'Cross-Origin-Resource-Policy': 'same-origin',
         }
+
+        # Relaxed headers for API docs (Swagger/Redoc) to avoid broken UI
+        self.docs_headers = {
+            'X-Content-Type-Options': 'nosniff',
+            'X-XSS-Protection': '1; mode=block',
+            'Referrer-Policy': 'no-referrer-when-downgrade',
+            # Intentionally no CSP/COEP/COOP/CORP for docs to avoid blank UI
+        }
     
     async def dispatch(self, request: Request, call_next):
         """Add security headers to response - O(1)"""
         
         response = await call_next(request)
         
-        # Add standard security headers
-        for header, value in self.headers.items():
+        # Choose headers depending on endpoint (docs need looser policy)
+        path = request.url.path
+        if path.startswith('/docs') or path.startswith('/redoc') or path.startswith('/openapi.json'):
+            selected = self.docs_headers
+        else:
+            selected = self.headers
+
+        # Add security headers
+        for header, value in selected.items():
             response.headers[header] = value
         
         # CORS headers are handled by FastAPI's CORSMiddleware

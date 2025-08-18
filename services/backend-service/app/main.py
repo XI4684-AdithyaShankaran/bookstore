@@ -266,41 +266,46 @@ async def stream_books(
     delay: float = 0.1,
     db: Session = Depends(get_db)
 ):
-    """Stream books in real-time with Server-Sent Events - FIXED ORDER"""
-    try:
-        book_service = BookService(db)
-        books_data = book_service.get_books(
-            skip=0,
-            limit=batch_size,
-            search=search,
-            genre=genre
-        )
+    """Stream books via Server-Sent Events (SSE)."""
+    import json as _json
+    import asyncio as _asyncio
 
-        books = books_data.get('books', [])
-        book_list = []
-
-        for book in books:
-            book_dict = {
-                'id': book.id,
-                'title': book.title,
-                'author': book.author,
-                'genre': book.genre,
-                'rating': float(book.rating) if book.rating else 0,
-                'price': float(book.price) if book.price else 0,
-                'image_url': book.image_url,
-                'description': book.description
-            }
-            book_list.append(book_dict)
-
+    def to_book_dict(book):
         return {
-            "type": "books_batch",
-            "data": book_list,
-            "total": len(book_list),
-            "message": "Books retrieved successfully"
+            'id': book.id,
+            'title': book.title,
+            'author': book.author,
+            'genre': book.genre,
+            'rating': float(book.rating) if getattr(book, 'rating', None) is not None else 0.0,
+            'price': float(book.price) if getattr(book, 'price', None) is not None else 0.0,
+            'image_url': getattr(book, 'image_url', None),
+            'description': getattr(book, 'description', None)
         }
-    except Exception as e:
-        logger.error(f"Error in stream_books: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+    async def event_generator():
+        try:
+            book_service = BookService(db)
+
+            # Fetch first page to know something to send; if you want full count, extend service to count
+            result = book_service.get_books(skip=0, limit=batch_size, search=search, genre=genre)
+            books = result.get('books', []) or []
+
+            # Start event
+            yield f"data: {_json.dumps({'type': 'start', 'message': 'stream started'})}\n\n"
+
+            count = 0
+            for book in books:
+                yield f"data: {_json.dumps({'type': 'book', 'data': to_book_dict(book), 'index': count})}\n\n"
+                count += 1
+                yield f"data: {_json.dumps({'type': 'progress', 'count': int(count)})}\n\n"
+                await _asyncio.sleep(float(delay))
+
+            yield f"data: {_json.dumps({'type': 'end', 'total': count, 'message': 'done'})}\n\n"
+        except Exception as exc:
+            logger.error(f"Error in stream_books SSE: {exc}")
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'stream failed'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/books/{book_id}")
 async def get_book(book_id: int, db: Session = Depends(get_db)):
