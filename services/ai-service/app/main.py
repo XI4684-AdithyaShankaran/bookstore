@@ -26,7 +26,7 @@ import numpy as np
 
 # RAGAS imports
 from ragas import evaluate
-from ragas.metrics import faithfulness, answer_relevancy, context_relevancy
+from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from datasets import Dataset
 from sentence_transformers import SentenceTransformer
 

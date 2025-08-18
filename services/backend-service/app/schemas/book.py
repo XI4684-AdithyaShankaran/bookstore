@@ -5,16 +5,15 @@ from datetime import datetime
 class BookBase(BaseModel):
     title: str
     author: str
-    year: Optional[int] = None
-    genre: Optional[str] = None
+    genre: str
     description: Optional[str] = None
+    price: float
+    rating: Optional[float] = 0.0
+    image_url: Optional[str] = None
     isbn: Optional[str] = None
-    rating: Optional[float] = None
-    pages: Optional[int] = None
+    publication_date: Optional[datetime] = None
+    page_count: Optional[int] = None
     language: Optional[str] = None
-    publisher: Optional[str] = None
-    cover_image: Optional[str] = None
-    price: Optional[float] = None
 
 class BookCreate(BookBase):
     pass

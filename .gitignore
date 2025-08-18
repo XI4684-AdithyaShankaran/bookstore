@@ -1,8 +1,9 @@
 # Environment files (environment-specific .env files are committed to respective branches)
 # Only ignore local overrides and temporary env files
+
 .env.local
-.env.temp
-.env.backup
+.env.development
+.env.production
 
 # Dependencies
 node_modules/
@@ -11,8 +12,6 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-env/
-venv/
 .venv/
 
 # Build outputs

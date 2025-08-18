@@ -98,10 +98,7 @@ class DatabaseOptimizations:
                 Index('idx_users_email', 'email'),
                 Index('idx_users_active', 'is_active'),
                 
-                # Order table indexes (orders table doesn't exist yet)
-                # Index('idx_orders_user_id', 'user_id'),
-                # Index('idx_orders_status', 'status'),
-                # Index('idx_orders_created_at', 'created_at'),
+
                 
                 # Cart items table indexes (table is cart_items, not cart)
                 Index('idx_cart_items_user_id', 'user_id'),
@@ -156,7 +153,7 @@ class DatabaseOptimizations:
     def optimize_table_statistics(self, session: Session):
         """Update table statistics for query optimization"""
         try:
-            tables = ['books', 'users', 'cart_items', 'bookshelves', 'wishlist', 'ratings', 'bookshelf_books']
+            tables = ['books', 'users', 'cart_items', 'bookshelves', 'wishlist']
             
             for table in tables:
                 try:
@@ -172,15 +169,15 @@ class DatabaseOptimizations:
             logger.error(f"❌ Failed to update table statistics: {e}")
             raise
     
-    def vacuum_database(self, session: Session):
+    def vacuum_database(self, engine):
         """Vacuum database to reclaim storage and update statistics"""
         try:
-            session.execute(text("VACUUM ANALYZE"))
-            session.commit()
+            with engine.connect() as connection:
+                connection.execute(text("VACUUM ANALYZE"))
+                connection.commit()
             logger.info("✅ Database vacuum completed")
             
         except Exception as e:
-            session.rollback()
             logger.error(f"❌ Failed to vacuum database: {e}")
             raise
     
@@ -235,8 +232,9 @@ class DatabaseOptimizations:
                 # Update statistics
                 self.optimize_table_statistics(session)
                 
-                # Vacuum database
-                self.vacuum_database(session)
+                # Vacuum database (needs engine, not session)
+                if hasattr(self, 'engine') and self.engine:
+                    self.vacuum_database(self.engine)
                 
                 # Optimize memory
                 self.optimize_memory_usage()

@@ -33,6 +33,7 @@ import time
 from app.models.book import Book
 from app.models.user import User
 from app.models.bookshelf import Bookshelf
+
 from app.models.payment import Payment, PaymentStatus, PaymentMethod
 from app.models.order import Order, OrderItem, OrderStatus
 from app.schemas.book import BookResponse, BookCreate
@@ -48,12 +49,76 @@ from app.services.optimized_algorithms import optimized_algorithms
 from app.api.payment import PaymentService
 from app.services.redis_service import redis_service, cache_result, CacheStrategy
 from app.database.optimizations import db_optimizations
+from app.database import Base
 
-# Initialize FastAPI app
+
+# Initialize FastAPI app with lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown"""
+    try:
+        # Initialize database optimizations
+        try:
+            db = SessionLocal()
+            try:
+                # Create tables if they don't exist
+                Base.metadata.create_all(bind=engine)
+                
+                # Run database optimizations
+                try:
+                    # Initialize db_optimizations with engine
+                    db_optimizations.engine = engine
+                    db_optimizations.create_performance_indexes(db)
+                    db_optimizations.optimize_table_statistics(db)
+                    
+                    # VACUUM needs to run outside transaction
+                    db.close()
+                    db_optimizations.vacuum_database(engine)
+                    db = SessionLocal()
+                except Exception as opt_error:
+                    logger.warning(f"⚠️ Database optimizations failed: {opt_error}")
+                    # Continue startup even if optimizations fail
+            finally:
+                db.close()
+        except Exception as db_error:
+            logger.warning(f"⚠️ Database optimizations failed: {db_error}")
+        
+        # Initialize recommendation engine
+        try:
+            await recommendation_engine.load_books_data()
+        except Exception as rec_error:
+            logger.warning(f"⚠️ Recommendation engine initialization failed: {rec_error}")
+        
+        # Start background tasks
+        asyncio.create_task(cache_cleanup_task())
+        asyncio.create_task(system_monitoring_task())
+        
+        logger.info("✅ Backend started successfully")
+        yield
+        
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}")
+        raise
+    finally:
+        # Cleanup on shutdown
+        try:
+            # Clean up resources
+            cache.cleanup()
+            
+            # Close database connections
+            engine.dispose()
+            
+            logger.info("✅ Backend shutdown completed")
+            
+        except Exception as e:
+            logger.error(f"❌ Shutdown error: {e}")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Bkmrk'd Bookstore API",
     description="Production-ready bookstore API",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Logging configuration
@@ -197,7 +262,7 @@ class RecommendationEngine:
             if not self._should_reload():
                 return
             
-            # Use optimized database query
+                        # Use optimized database query
             db = SessionLocal()
             try:
                 books = db.query(Book).all()
@@ -210,7 +275,7 @@ class RecommendationEngine:
                         "genre": book.genre,
                         "rating": book.rating,
                         "price": book.price,
-                        "cover_image": book.cover_image
+                        "image_url": book.image_url
                     }
                     for book in books
                 ]
@@ -223,6 +288,7 @@ class RecommendationEngine:
                 
         except Exception as e:
             logger.error(f"❌ Error loading books data: {e}")
+            raise
     
     async def get_user_recommendations(self, user_id: int, limit: int = 10) -> List[Dict]:
         """Get user recommendations"""
@@ -239,9 +305,10 @@ class RecommendationEngine:
             # Use optimized algorithms
             db = SessionLocal()
             try:
-                # Simple recommendation logic for now
+                # Get user's reading history and preferences
                 recommendations = []
                 books = db.query(Book).limit(limit).all()
+                
                 for book in books:
                     recommendations.append({
                         "id": book.id,
@@ -250,7 +317,7 @@ class RecommendationEngine:
                         "genre": book.genre,
                         "rating": book.rating,
                         "price": book.price,
-                        "cover_image": book.cover_image
+                        "image_url": book.image_url
                     })
                 
                 # Cache the result
@@ -281,14 +348,38 @@ def get_db():
 security = HTTPBearer()
 
 async def get_current_user(token: str = Depends(security)) -> User:
-    """Get current user with optimization"""
+    """Get current user with JWT validation"""
     try:
-        # Use optimized user lookup
+        # Validate JWT token and get user from database
         db = SessionLocal()
         try:
-            # This would validate JWT token and get user
-            # For now, return a mock user
-            return User(id=1, email="user@example.com", name="Test User")
+            # Decode JWT token to get user_id
+            from app.services.auth_service import verify_token
+            payload = verify_token(token.credentials)
+            if not payload:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token payload",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            # Get user from database
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            return user
         finally:
             db.close()
     except Exception as e:
@@ -298,38 +389,7 @@ async def get_current_user(token: str = Depends(security)) -> User:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-# Startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    """Startup event"""
-    try:
-        # Initialize database optimizations (skip if database not available)
-        try:
-            db = SessionLocal()
-            try:
-                db_optimizations.create_performance_indexes(db)
-                db_optimizations.optimize_table_statistics(db)
-                db_optimizations.vacuum_database(db)
-            finally:
-                db.close()
-        except Exception as db_error:
-            logger.warning(f"⚠️ Database optimizations skipped: {db_error}")
-        
-        # Initialize recommendation engine (skip if database not available)
-        try:
-            await recommendation_engine.load_books_data()
-        except Exception as rec_error:
-            logger.warning(f"⚠️ Recommendation engine initialization skipped: {rec_error}")
-        
-        # Start background tasks
-        asyncio.create_task(cache_cleanup_task())
-        asyncio.create_task(system_monitoring_task())
-        
-        logger.info("✅ Backend started successfully")
-        
-    except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
-        raise
+
 
 async def cache_cleanup_task():
     """Cache cleanup task"""
@@ -450,10 +510,7 @@ async def get_books(
         # Database query with optimization
         db = SessionLocal()
         try:
-            query = db.query(Book).options(
-                joinedload(Book.genres),
-                joinedload(Book.author)
-            )
+            query = db.query(Book)
             
             # Apply filters with optimization
             if search:
@@ -462,15 +519,16 @@ async def get_books(
                     or_(
                         Book.title.ilike(search_term),
                         Book.description.ilike(search_term),
-                        Book.author.has(User.name.ilike(search_term))
+                        Book.author.ilike(search_term)
                     )
                 )
             
             if genre:
-                query = query.filter(Book.genres.any(Genre.name.ilike(f"%{genre}%")))
+                # Use the simple genre field from Kaggle dataset
+                query = query.filter(Book.genre.ilike(f"%{genre}%"))
             
             if min_rating is not None:
-                query = query.filter(Book.average_rating >= min_rating)
+                query = query.filter(Book.rating >= min_rating)
             
             if max_price is not None:
                 query = query.filter(Book.price <= max_price)
@@ -479,7 +537,7 @@ async def get_books(
             books = query.offset(skip).limit(limit).all()
             
             # Convert to response models
-            result = [BookResponse.from_orm(book) for book in books]
+            result = [BookResponse.model_validate(book) for book in books]
             
             # Cache the result
             await redis_service.set(cache_key, result, ttl=1800)
@@ -510,16 +568,12 @@ async def get_book(book_id: int, request: Request = None):
         # Database query
         db = SessionLocal()
         try:
-            book = db.query(Book).options(
-                joinedload(Book.genres),
-                joinedload(Book.author),
-                joinedload(Book.reviews)
-            ).filter(Book.id == book_id).first()
+            book = db.query(Book).filter(Book.id == book_id).first()
             
             if not book:
                 raise HTTPException(status_code=404, detail="Book not found")
             
-            result = BookResponse.from_orm(book)
+            result = BookResponse.model_validate(book)
             
             # Cache the result
             await redis_service.set(cache_key, result, ttl=3600)
@@ -694,10 +748,10 @@ async def get_cart(current_user: User = Depends(get_current_user), request: Requ
             cart_data = await cart_service.get_user_cart(current_user.id)
             
             # Cache cart data
-            await redis_service.set(cache_key, cart_data.dict(), ttl=300)  # 5 minutes
+            await redis_service.set(cache_key, cart_data.model_dump(), ttl=300)  # 5 minutes
             
             logger.info(f"✅ Cart retrieved for user {current_user.id}")
-            return cart_data.dict()
+            return cart_data.model_dump()
             
         finally:
             db.close()
@@ -905,21 +959,7 @@ async def register_user(user: UserCreate, db: Session = Depends(get_db), request
         logger.error(f"❌ Error registering user: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown event"""
-    try:
-        # Clean up resources
-        cache.cleanup()
-        
-        # Close database connections
-        engine.dispose()
-        
-        logger.info("✅ Backend shutdown completed")
-        
-    except Exception as e:
-        logger.error(f"❌ Shutdown error: {e}")
+
 
 # Add CORS middleware
 app.add_middleware(
